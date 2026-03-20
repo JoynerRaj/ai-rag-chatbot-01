@@ -1,7 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import os
-from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone, ServerlessSpec
 from openai import OpenAI
 
@@ -16,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
@@ -25,10 +25,10 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Embedding model
-model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Pinecone setup
+model = None
+
+
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 index_name = "rag-chatbot"
@@ -45,12 +45,22 @@ index = pc.Index(index_name)
 
 @app.get("/")
 def home():
-    return {"message": "RAG API Running with Groq "}
+    return {"message": "RAG API Running "}
 
-# Process text
+
+def load_model():
+    global model
+    if model is None:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
 def process_text(text):
+    load_model()
+
     chunks = text.split("\n")
     chunks = [c for c in chunks if c.strip() != ""]
+
     embeddings = model.encode(chunks)
     return chunks, embeddings
 
@@ -82,17 +92,19 @@ async def upload_file(file: UploadFile = File(...)):
 @app.post("/query")
 async def query(q: str):
     try:
-        # Embed question
+        load_model()
+
+        
         query_embedding = model.encode([q])[0]
 
-        # Search Pinecone
+    
         results = index.query(
             vector=query_embedding.tolist(),
             top_k=3,
             include_metadata=True
         )
 
-        # Get context
+    
         context = " ".join(
             [match["metadata"]["text"] for match in results["matches"]]
         )
@@ -107,7 +119,7 @@ Question:
 {q}
 """
 
-        
+    
         completion = client.chat.completions.create(
             model="llama3-70b-8192",
             messages=[
