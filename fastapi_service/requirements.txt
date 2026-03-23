@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pinecone
+sentence-transformers
+google-generativeai
+python-multipart

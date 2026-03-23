@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY . .
 
-RUN pip install --no-cache-dir django channels daphne requests
+RUN pip install django channels daphne pinecone sentence-transformers google-generativeai
 
-CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "django_chat.asgi:application"]
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8001", "django_chat.asgi:application"]

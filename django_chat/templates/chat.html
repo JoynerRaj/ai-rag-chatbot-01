@@ -2,121 +2,199 @@
 <html>
 <head>
     <title>AI Chatbot</title>
+
     <style>
         body {
+            margin: 0;
             font-family: Arial;
-            background: #2f2f3a;
+            background: #0f172a;
             color: white;
         }
 
-        #chat-box {
-            height: 75vh;
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            padding: 15px;
+            font-size: 22px;
+            font-weight: bold;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .chat-box {
+            flex: 1;
             overflow-y: auto;
-            padding: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message {
+            max-width: 70%;
+            padding: 10px 15px;
+            margin: 8px 0;
+            border-radius: 10px;
         }
 
         .user {
-            text-align: right;
-            color: #4fc3f7;
-            margin: 10px;
+            background: #2563eb;
+            align-self: flex-end;
         }
 
         .bot {
-            text-align: left;
-            background: #444;
-            padding: 10px;
-            border-radius: 10px;
-            margin: 10px;
-            display: inline-block;
+            background: #1e293b;
+            align-self: flex-start;
         }
 
-        .bottom {
-            position: fixed;
-            bottom: 10px;
-            width: 100%;
+        .input-area {
+            display: flex;
+            padding: 10px;
+            border-top: 1px solid #1e293b;
+            background: #020617;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: none;
+            outline: none;
+        }
+
+        button {
+            margin-left: 10px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 8px;
+            background: #22c55e;
+            color: white;
+            cursor: pointer;
+        }
+
+        .upload {
+            padding: 10px;
+            border-top: 1px solid #1e293b;
+            background: #020617;
         }
     </style>
 </head>
+
 <body>
 
-<h2 style="text-align:center;">AI Chatbot</h2>
+<div class="container">
 
-<div id="chat-box"></div>
+    <div class="header">AI Chatbot</div>
 
-<div class="bottom">
-    <input type="file" id="fileInput">
-    <button onclick="uploadFile()">Upload</button>
+    <div id="chat" class="chat-box"></div>
 
-    <br><br>
+    <div class="upload">
+        <input type="file" id="file">
+        <button onclick="uploadFile()">Upload</button>
+    </div>
 
-    <input type="text" id="message" placeholder="Type your message..." style="width:60%;">
-    <button onclick="sendMessage()">Send</button>
+    <div class="input-area">
+        <input type="text" id="msg" placeholder="Type message..." onkeydown="handleKey(event)">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
 </div>
 
 <script>
-    const chatBox = document.getElementById("chat-box");
 
-    function addMessage(text, className) {
-        const div = document.createElement("div");
-        div.className = className;
-        div.innerText = text;
-        chatBox.appendChild(div);
-        chatBox.scrollTop = chatBox.scrollHeight;
-    }
+let ws;
 
-    // ✅ WebSocket
-    const socket = new WebSocket("ws://localhost:8000/ws/chat/");
+function connectWebSocket() {
+    ws = new WebSocket("ws://127.0.0.1:8001/ws/chat/");
 
-    socket.onmessage = function(e) {
-        const data = JSON.parse(e.data);
-        addMessage(data.message, "bot");
+    ws.onopen = () => {
+        console.log("WebSocket connected");
     };
 
-    function sendMessage() {
-        const input = document.getElementById("message");
-        const message = input.value;
+    ws.onmessage = (event) => {
+        let data = JSON.parse(event.data);
+        addMessage(data.response, "bot");
+    };
 
-        if (!message) return;
+    ws.onerror = (e) => {
+        console.log("WebSocket error", e);
+    };
 
-        addMessage(message, "user");
+    ws.onclose = () => {
+        console.log("WebSocket closed... reconnecting");
+        setTimeout(connectWebSocket, 1000);
+    };
+}
 
-        socket.send(JSON.stringify({
-            message: message
-        }));
+connectWebSocket();
 
-        input.value = "";
+
+function addMessage(text, sender) {
+    let chat = document.getElementById("chat");
+
+    let msg = document.createElement("div");
+    msg.classList.add("message", sender);
+    msg.innerText = text;
+
+    chat.appendChild(msg);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+
+function sendMessage() {
+    let input = document.getElementById("msg");
+    let message = input.value.trim();
+
+    if (!message) return;
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert("WebSocket not connected yet");
+        return;
     }
 
-    function uploadFile() {
-        const fileInput = document.getElementById("fileInput");
-        const file = fileInput.files[0];
+    addMessage(message, "user");
 
-        if (!file) {
-            alert("Select file first");
-            return;
-        }
+    console.log("Sending:", message);
 
-        const formData = new FormData();
-        formData.append("file", file);
+    ws.send(JSON.stringify({
+        message: message
+    }));
 
-        fetch("http://localhost:8001/upload", {
-            method: "POST",
-            body: formData
-        })
-        .then(async res => {
-            const data = await res.json();
+    input.value = "";
+}
 
-            if (data.error) {
-                addMessage("Upload error: " + data.error, "bot");
-            } else {
-                addMessage("Upload success ", "bot");
-            }
-        })
-        .catch(err => {
-            addMessage("Upload failed ", "bot");
-            console.error(err);
-        });
+
+function handleKey(event) {
+    if (event.key === "Enter") {
+        sendMessage();
     }
+}
+
+
+async function uploadFile() {
+    const fileInput = document.getElementById("file");
+
+    if (!fileInput.files.length) {
+        alert("Select file first");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    const res = await fetch("http://fastapi:8000/upload", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await res.json();
+
+    alert(data.message || data.error);
+}
+
 </script>
 
 </body>

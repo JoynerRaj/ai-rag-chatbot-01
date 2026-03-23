@@ -4,14 +4,15 @@ services:
 
   fastapi:
     build: ./fastapi_service
-    container_name: fastapi_service
     ports:
-      - "8001:8001"
+      - "8000:8000"
+    environment:
+      - PINECONE_API_KEY=your_key
+      - GEMINI_API_KEY=your_key
 
   django:
     build: ./django_chat
-    container_name: django_chat
     ports:
-      - "8000:8000"
+      - "8001:8001"
     depends_on:
       - fastapi

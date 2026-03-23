@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-sentence-transformers
-pinecone
-openai
-python-multipart
-requests
