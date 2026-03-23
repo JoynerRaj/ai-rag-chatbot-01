@@ -2,10 +2,10 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 import os
 import uuid
+import random
 
 load_dotenv()
 
@@ -35,11 +35,13 @@ if index_name not in pc.list_indexes().names():
 
 index = pc.Index(index_name)
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
-
 
 class QueryRequest(BaseModel):
     query: str
+
+
+def fake_embedding():
+    return [random.random() for _ in range(384)]
 
 
 @app.get("/")
@@ -54,14 +56,12 @@ async def upload_file(file: UploadFile = File(...)):
 
     chunks = text.split("\n\n")
 
-    embeddings = model.encode(chunks)
-
     vectors = []
-    for i, emb in enumerate(embeddings):
+    for chunk in chunks:
         vectors.append({
             "id": str(uuid.uuid4()),
-            "values": emb.tolist(),
-            "metadata": {"text": chunks[i]}
+            "values": fake_embedding(),
+            "metadata": {"text": chunk}
         })
 
     index.upsert(vectors)
@@ -71,12 +71,10 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/query")
 def query_api(data: QueryRequest):
-    query = data.query
-
-    query_embedding = model.encode([query])[0]
+    query_embedding = fake_embedding()
 
     results = index.query(
-        vector=query_embedding.tolist(),
+        vector=query_embedding,
         top_k=3,
         include_metadata=True
     )
