@@ -1,0 +1,14 @@
+<h2>Documents</h2>
+
+<a href="/upload/">Upload New</a>
+
+<ul>
+    {% for doc in docs %}
+        <li>
+            <b>{{ doc.title }}</b>
+
+            <a href="/edit/{{ doc.id }}/">Edit</a>
+            <a href="/delete/{{ doc.id }}/">Delete</a>
+        </li>
+    {% endfor %}
+</ul>

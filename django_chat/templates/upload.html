@@ -1,0 +1,17 @@
+<h2>Upload Document</h2>
+
+{% if error %}
+<p style="color:red;">{{ error }}</p>
+{% endif %}
+
+<form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+    <input type="text" name="title" placeholder="Enter title" required>
+    <br><br>
+    <input type="file" name="file" required>
+    <br><br>
+    <button type="submit">Upload</button>
+</form>
+
+<br>
+<a href="/documents/">View Documents</a>
