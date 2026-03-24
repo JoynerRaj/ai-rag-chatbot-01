@@ -21,7 +21,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             query = data['message']
 
             response = requests.post(
-                "http://127.0.0.1:8000/query",
+                "https://ai-rag-chatbot-01.onrender.com/query",
                 json={"query": query}
             )
 
