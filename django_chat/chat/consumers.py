@@ -4,11 +4,11 @@ import os
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
-from google import genai
+import google.generativeai as genai
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -21,7 +21,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             data = json.loads(text_data)
             query = data['message']
 
-            # ✅ Non-blocking request
             response = await sync_to_async(requests.post)(
                 "https://ai-rag-chatbot-01.onrender.com/query",
                 json={"query": query}
@@ -48,13 +47,11 @@ Question:
 {query}
 """
 
-            # ✅ Gemini also wrapped
+            model = genai.GenerativeModel("gemini-2.5-flash")
+
             gemini_response = await sync_to_async(
-                client.models.generate_content
-            )(
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
+                model.generate_content
+            )(prompt)
 
             await self.send(text_data=json.dumps({
                 "response": gemini_response.text
