@@ -25,6 +25,20 @@
             border-bottom: 1px solid #1e293b;
         }
 
+        .top-bar {
+            display: flex;
+            justify-content: flex-end;
+            padding: 10px 20px;
+        }
+
+        .top-bar a {
+            color: white;
+            text-decoration: none;
+            background: #2563eb;
+            padding: 8px 12px;
+            border-radius: 8px;
+        }
+
         .chat-box {
             flex: 1;
             overflow-y: auto;
@@ -74,12 +88,6 @@
             color: white;
             cursor: pointer;
         }
-
-        .upload {
-            padding: 10px;
-            border-top: 1px solid #1e293b;
-            background: #020617;
-        }
     </style>
 </head>
 
@@ -89,12 +97,11 @@
 
     <div class="header">AI Chatbot</div>
 
-    <div id="chat" class="chat-box"></div>
-
-    <div class="upload">
-        <input type="file" id="file">
-        <button onclick="uploadFile()">Upload</button>
+    <div class="top-bar">
+        <a href="/documents/">📄 Manage Documents</a>
     </div>
+
+    <div id="chat" class="chat-box"></div>
 
     <div class="input-area">
         <input type="text" id="msg" placeholder="Type message..." onkeydown="handleKey(event)">
@@ -174,38 +181,7 @@ function handleKey(event) {
     }
 }
 
-
-async function uploadFile() {
-    const fileInput = document.getElementById("file");
-
-    if (!fileInput.files.length) {
-        alert("Select file first");
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", fileInput.files[0]);
-
-    try {
-        alert("Uploading... please wait ⏳");
-
-        const res = await fetch("https://ai-rag-chatbot-01.onrender.com/upload", {
-            method: "POST",
-            body: formData
-        });
-
-        if (!res.ok) {
-            throw new Error("Upload failed");
-        }
-
-        const data = await res.json();
-
-        alert(data.message || "Upload success");
-
-    } catch (error) {
-        console.error(error);
-        alert("Upload failed");
-    }
-}
-
 </script>
+
+</body>
+</html>
