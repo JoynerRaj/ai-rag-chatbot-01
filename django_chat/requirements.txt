@@ -2,3 +2,4 @@ django
 channels
 daphne
 requests
+python-dotenv
