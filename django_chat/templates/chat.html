@@ -187,14 +187,28 @@ async function uploadFile() {
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
 
-    const res = await fetch("https://ai-rag-chatbot-01.onrender.com/upload", {
-        method: "POST",
-        body: formData
-    });
+    try {
+        alert("Uploading... please wait ⏳");
 
-    const data = await res.json();
+        const res = await fetch("https://ai-rag-chatbot-01.onrender.com/upload", {
+            method: "POST",
+            body: formData
+        });
 
-    alert(data.message || data.error);
+        console.log("Response status:", res.status);
+
+        if (!res.ok) {
+            throw new Error("Upload failed");
+        }
+
+        const data = await res.json();
+
+        console.log("Upload success:", data);
+
+        alert(data.message || "Upload success");
+
+    } catch (error) {
+        console.error("Upload error:", error);
+        alert("Upload failed. Check console.");
+    }
 }
-
-</script>

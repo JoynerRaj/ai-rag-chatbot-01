@@ -3,6 +3,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
+from asgiref.sync import sync_to_async
 from google import genai
 
 load_dotenv()
@@ -20,7 +21,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             data = json.loads(text_data)
             query = data['message']
 
-            response = requests.post(
+            # ✅ Non-blocking request
+            response = await sync_to_async(requests.post)(
                 "https://ai-rag-chatbot-01.onrender.com/query",
                 json={"query": query}
             )
@@ -46,7 +48,10 @@ Question:
 {query}
 """
 
-            gemini_response = client.models.generate_content(
+            # ✅ Gemini also wrapped
+            gemini_response = await sync_to_async(
+                client.models.generate_content
+            )(
                 model="gemini-2.5-flash",
                 contents=prompt
             )
