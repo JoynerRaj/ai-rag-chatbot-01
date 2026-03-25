@@ -30,23 +30,28 @@ def upload_page(request):
             files = {"file": file}
             res = requests.post(
                 "https://ai-rag-chatbot-01.onrender.com/upload",
-                files=files
+                files=files,
+                timeout=60  # ADD THIS — wait up to 60s for Render to wake up
             )
             print("FastAPI status:", res.status_code)
             print("FastAPI response:", res.text)
 
             if res.status_code == 200:
                 pinecone_id = res.json().get("document_id", "")
+                print("Got pinecone_id:", pinecone_id)
 
         except Exception as e:
             print("FastAPI upload failed:", e)
+            # Save to Django even if FastAPI fails
+            pinecone_id = ""
 
         # Save in Django DB with pinecone_id
-        Document.objects.create(
+        doc = Document.objects.create(
             title=title,
             content=content,
             pinecone_id=pinecone_id
         )
+        print("Saved to Django DB, id:", doc.id, "pinecone_id:", doc.pinecone_id)
 
         return redirect("documents")
 
