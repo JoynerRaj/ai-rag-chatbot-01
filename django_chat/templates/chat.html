@@ -130,7 +130,7 @@
                 {% for doc in documents %}
                 <label>
                     <input type="radio" name="document" value="{{ doc.id }}">
-                    {{ doc.file.name|cut:"uploads/" }}
+                    {{ doc }}
                 </label>
                 {% endfor %}
             </div>
@@ -213,7 +213,7 @@ function showSources(sources) {
     let text = "📄 Source:\n\n";
 
     sources.forEach((s, index) => {
-        text += (index + 1) + ". " + s + "\n\n";
+        text += (index + 1) + ". " + s + "\n";
     });
 
     box.innerText = text;

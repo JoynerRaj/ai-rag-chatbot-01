@@ -60,7 +60,8 @@ async def upload_file(file: UploadFile = File(...)):
             "values": embed(chunk),
             "metadata": {
                 "text": chunk,
-                "document_id": document_id
+                "document_id": document_id,
+                "filename": file.filename
             }
         })
 
@@ -93,7 +94,10 @@ def query_api(data: dict):
     texts = []
 
     for match in results["matches"]:
-        texts.append(match["metadata"]["text"])
+        texts.append({
+    "text": match["metadata"]["text"],
+    "file_name": match["metadata"]["file_name"]
+})
 
     return {"results": texts}
 

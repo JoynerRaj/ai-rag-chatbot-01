@@ -59,7 +59,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             top_chunks = results[:3]
 
-            context = "\n".join(top_chunks)
+            context = "\n".join([item["text"] for item in top_chunks])
+
+            sources = list(set([item["file_name"] for item in top_chunks]))
 
             prompt = f"""
 Answer ONLY from the context below.
@@ -80,7 +82,7 @@ Question:
 
             await self.send(text_data=json.dumps({
                 "response": gemini_response.text,
-                "sources": top_chunks[:2]
+                "sources": sources
             }))
 
         except Exception as e:
