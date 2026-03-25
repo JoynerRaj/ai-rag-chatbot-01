@@ -86,3 +86,8 @@ def query_api(data: QueryRequest):
             texts.append(match["metadata"]["text"])
 
     return {"results": texts}
+
+@app.delete("/delete-all")
+def delete_all():
+    index.delete(delete_all=True)
+    return {"message": "All vectors deleted from Pinecone"}
