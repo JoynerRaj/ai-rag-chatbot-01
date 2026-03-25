@@ -34,7 +34,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             if response.status_code != 200:
                 await self.send(text_data=json.dumps({
-                    "response": "FastAPI error",
+                    "response": "FastAPI error" + response.text,
                     "sources": []
                 }))
                 return
