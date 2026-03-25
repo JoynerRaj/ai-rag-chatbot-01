@@ -3,8 +3,11 @@ from .models import Document
 import requests
 
 
+from .models import Document
+
 def chat_page(request):
-    return render(request, "chat.html")
+    documents = Document.objects.all()
+    return render(request, 'chat.html', {'documents': documents})
 
 
 def upload_page(request):

@@ -70,22 +70,36 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 @app.post("/query")
-def query_api(data: QueryRequest):
-    query_embedding = fake_embedding()
+def query(data: dict):
+    question = data.get("question")
+    document_id = data.get("document_id")
+
+    if document_id:
+        filter = {"document_id": document_id}
+    else:
+        filter = None
 
     results = index.query(
-        vector=query_embedding,
+        vector=embed(question),
         top_k=3,
-        include_metadata=True
+        include_metadata=True,
+        filter=filter
     )
 
-    texts = []
+    context = ""
+    sources = []
 
     for match in results["matches"]:
-        if "metadata" in match and "text" in match["metadata"]:
-            texts.append(match["metadata"]["text"])
+        text = match["metadata"]["text"]
+        context += text + "\n"
+        sources.append(text)
 
-    return {"results": texts}
+    answer = get_gemini_response(question, context)
+
+    return {
+        "answer": answer,
+        "sources": sources[:2]
+    }
 
 @app.delete("/delete-all")
 def delete_all():
