@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
 import os
 import uuid
 
@@ -34,12 +33,18 @@ if index_name not in pc.list_indexes().names():
 
 index = pc.Index(index_name)
 
-# Real embedding model (384 dimensions — matches your Pinecone index)
-embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+# Lazy load — model loads only on first request, not at startup
+embed_model = None
 
+def get_embed_model():
+    global embed_model
+    if embed_model is None:
+        from sentence_transformers import SentenceTransformer
+        embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return embed_model
 
 def embed(text):
-    return embed_model.encode(text).tolist()
+    return get_embed_model().encode(text).tolist()
 
 
 @app.get("/")
