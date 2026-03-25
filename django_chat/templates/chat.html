@@ -130,7 +130,7 @@
                 {% for doc in documents %}
                 <label>
                     <input type="radio" name="document" value="{{ doc.id }}">
-                    {{ doc.file.name }}
+                    {{ doc.file.name|cut:"uploads/" }}
                 </label>
                 {% endfor %}
             </div>

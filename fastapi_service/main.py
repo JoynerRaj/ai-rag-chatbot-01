@@ -1,8 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from pinecone import Pinecone, ServerlessSpec
 from dotenv import load_dotenv
+from pinecone import Pinecone, ServerlessSpec
 import os
 import uuid
 import random
@@ -36,11 +35,7 @@ if index_name not in pc.list_indexes().names():
 index = pc.Index(index_name)
 
 
-class QueryRequest(BaseModel):
-    query: str
-
-
-def fake_embedding():
+def embed(text):
     return [random.random() for _ in range(384)]
 
 
@@ -56,23 +51,35 @@ async def upload_file(file: UploadFile = File(...)):
 
     chunks = text.split("\n\n")
 
+    document_id = str(uuid.uuid4())
+
     vectors = []
     for chunk in chunks:
         vectors.append({
             "id": str(uuid.uuid4()),
-            "values": fake_embedding(),
-            "metadata": {"text": chunk}
+            "values": embed(chunk),
+            "metadata": {
+                "text": chunk,
+                "document_id": document_id
+            }
         })
 
     index.upsert(vectors)
 
-    return {"message": "Stored in Pinecone successfully"}
+    return {
+        "message": "Stored in Pinecone successfully",
+        "document_id": document_id
+    }
 
 
 @app.post("/query")
-def query(data: dict):
-    question = data.get("question")
+def query_api(data: dict):
+
+    query = data.get("query")
     document_id = data.get("document_id")
+
+    if not query:
+        return {"results": []}
 
     if document_id:
         filter = {"document_id": document_id}
@@ -80,26 +87,19 @@ def query(data: dict):
         filter = None
 
     results = index.query(
-        vector=embed(question),
+        vector=embed(query),
         top_k=3,
         include_metadata=True,
         filter=filter
     )
 
-    context = ""
-    sources = []
+    texts = []
 
     for match in results["matches"]:
-        text = match["metadata"]["text"]
-        context += text + "\n"
-        sources.append(text)
+        texts.append(match["metadata"]["text"])
 
-    answer = get_gemini_response(question, context)
+    return {"results": texts}
 
-    return {
-        "answer": answer,
-        "sources": sources[:2]
-    }
 
 @app.delete("/delete-all")
 def delete_all():
