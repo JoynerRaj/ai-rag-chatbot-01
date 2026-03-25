@@ -20,19 +20,35 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
 
-            query = data.get('message')
-            document_id = data.get('document_id')
+            query = data.get("message")
+            document_id = data.get("document_id")
 
-            # 🔥 Send to FastAPI with document_id
             response = await sync_to_async(requests.post)(
                 "https://ai-rag-chatbot-01.onrender.com/query",
                 json={
                     "query": query,
                     "document_id": document_id
-                }
+                },
+                timeout=10
             )
 
-            results = response.json().get("results", [])
+            if response.status_code != 200:
+                await self.send(text_data=json.dumps({
+                    "response": "FastAPI error",
+                    "sources": []
+                }))
+                return
+
+            try:
+                data_json = response.json()
+            except:
+                await self.send(text_data=json.dumps({
+                    "response": "Invalid response from FastAPI",
+                    "sources": []
+                }))
+                return
+
+            results = data_json.get("results", [])
 
             if not results:
                 await self.send(text_data=json.dumps({
@@ -41,10 +57,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }))
                 return
 
-            # ✅ Take top chunks
             top_chunks = results[:3]
 
-            # Context for Gemini
             context = "\n".join(top_chunks)
 
             prompt = f"""
@@ -64,7 +78,6 @@ Question:
                 model.generate_content
             )(prompt)
 
-            # ✅ Send answer + sources
             await self.send(text_data=json.dumps({
                 "response": gemini_response.text,
                 "sources": top_chunks[:2]
