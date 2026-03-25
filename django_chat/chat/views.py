@@ -1,9 +1,7 @@
 from django.shortcuts import render, redirect
-from .models import Document
+from .models import Document, ChatHistory
 import requests
 
-
-from .models import Document
 
 def chat_page(request):
     documents = Document.objects.all()
@@ -23,25 +21,32 @@ def upload_page(request):
         except:
             return render(request, "upload.html", {"error": "File must be text (.txt)"})
 
-        # Save in Django DB
-        Document.objects.create(title=title, content=content)
-
-        # Reset file pointer (IMPORTANT)
+        # Reset file pointer before sending to FastAPI
         file.seek(0)
 
-        # Send to FastAPI
+        # Send to FastAPI first to get pinecone_id
+        pinecone_id = ""
         try:
             files = {"file": file}
             res = requests.post(
                 "https://ai-rag-chatbot-01.onrender.com/upload",
                 files=files
             )
-
             print("FastAPI status:", res.status_code)
             print("FastAPI response:", res.text)
 
+            if res.status_code == 200:
+                pinecone_id = res.json().get("document_id", "")
+
         except Exception as e:
             print("FastAPI upload failed:", e)
+
+        # Save in Django DB with pinecone_id
+        Document.objects.create(
+            title=title,
+            content=content,
+            pinecone_id=pinecone_id
+        )
 
         return redirect("documents")
 
@@ -77,3 +82,10 @@ def edit_document(request, id):
         return redirect("documents")
 
     return render(request, "edit.html", {"doc": doc})
+
+
+def clear_history(request):
+    session_key = request.session.session_key
+    if session_key:
+        ChatHistory.objects.filter(session_key=session_key).delete()
+    return redirect("chat")

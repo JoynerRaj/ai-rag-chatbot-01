@@ -2,10 +2,14 @@
 <html>
 <head>
     <title>AI Chatbot</title>
-
     <style>
-        body {
+        * {
+            box-sizing: border-box;
             margin: 0;
+            padding: 0;
+        }
+
+        body {
             font-family: Arial;
             background: #0f172a;
             color: white;
@@ -23,6 +27,7 @@
             font-size: 22px;
             font-weight: bold;
             border-bottom: 1px solid #1e293b;
+            background: #0f172a;
         }
 
         .top-bar {
@@ -30,25 +35,34 @@
             justify-content: space-between;
             align-items: center;
             padding: 10px 20px;
+            border-bottom: 1px solid #1e293b;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
-        .top-bar a {
-            color: white;
-            text-decoration: none;
-            background: #2563eb;
-            padding: 8px 12px;
-            border-radius: 8px;
-        }
-
-        .doc-select {
-            font-size: 14px;
-        }
+        .doc-select { font-size: 14px; }
 
         .doc-list {
             display: flex;
             gap: 15px;
             flex-wrap: wrap;
+            margin-top: 4px;
         }
+
+        .top-bar-actions { display: flex; gap: 10px; }
+
+        .top-bar-actions a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .btn-manage { background: #2563eb; }
+        .btn-manage:hover { background: #1d4ed8; }
+        .btn-clear { background: #dc2626; }
+        .btn-clear:hover { background: #b91c1c; }
 
         .chat-box {
             flex: 1;
@@ -56,30 +70,63 @@
             padding: 20px;
             display: flex;
             flex-direction: column;
+            gap: 4px;
+        }
+
+        .history-divider {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            color: #64748b;
+            font-size: 12px;
+        }
+
+        .history-divider::before,
+        .history-divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: #1e293b;
         }
 
         .message {
             max-width: 70%;
             padding: 10px 15px;
-            margin: 8px 0;
+            margin: 4px 0;
             border-radius: 10px;
             white-space: pre-line;
+            line-height: 1.5;
+            font-size: 14px;
         }
 
-        .user {
-            background: #2563eb;
-            align-self: flex-end;
-        }
+        .user { background: #2563eb; align-self: flex-end; }
+        .bot { background: #1e293b; align-self: flex-start; }
 
-        .bot {
+        .typing-indicator {
             background: #1e293b;
             align-self: flex-start;
+            padding: 12px 18px;
+            border-radius: 10px;
+            display: none;
         }
 
-        .source-box {
-            font-size: 13px;
-            background: #020617;
-            border-left: 3px solid #22c55e;
+        .typing-indicator span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #64748b;
+            border-radius: 50%;
+            margin: 0 2px;
+            animation: bounce 1.2s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes bounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
         }
 
         .input-area {
@@ -87,64 +134,91 @@
             padding: 10px;
             border-top: 1px solid #1e293b;
             background: #020617;
+            gap: 8px;
         }
 
         input[type="text"] {
             flex: 1;
-            padding: 10px;
+            padding: 10px 14px;
             border-radius: 8px;
-            border: none;
+            border: 1px solid #1e293b;
             outline: none;
+            background: #1e293b;
+            color: white;
+            font-size: 14px;
         }
 
+        input[type="text"]:focus { border-color: #2563eb; }
+        input[type="text"]::placeholder { color: #64748b; }
+
         button {
-            margin-left: 10px;
-            padding: 10px 15px;
+            padding: 10px 18px;
             border: none;
             border-radius: 8px;
             background: #22c55e;
             color: white;
             cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
         }
 
+        button:hover { background: #16a34a; }
+        button:disabled { background: #374151; cursor: not-allowed; }
+
+        .status-bar {
+            text-align: center;
+            font-size: 11px;
+            padding: 4px;
+            background: #020617;
+        }
+
+        .status-bar.connected { color: #22c55e; }
+        .status-bar.disconnected { color: #ef4444; }
     </style>
 </head>
 
 <body>
-
 <div class="container">
 
     <div class="header">AI Chatbot</div>
 
     <div class="top-bar">
-
         <div class="doc-select">
             <strong>Select Document:</strong>
-
             <div class="doc-list">
                 <label>
-                    <input type="radio" name="document" value="" checked>
-                    All
+                    <input type="radio" name="document" value="" checked> All
                 </label>
-
                 {% for doc in documents %}
                 <label>
-                    <input type="radio" name="document" value="{{ doc.id }}">
-                    {{ doc }}
+                    <input type="radio" name="document" value="{{ doc.pinecone_id }}"> {{ doc }}
                 </label>
                 {% endfor %}
             </div>
         </div>
 
-        <a href="/documents/">📄 Manage</a>
-
+        <div class="top-bar-actions">
+            <a href="/documents/" class="btn-manage">📄 Manage</a>
+            <a href="/clear-history/"
+               class="btn-clear"
+               onclick="return confirm('Clear all chat history?')">🗑️ Clear History</a>
+        </div>
     </div>
 
-    <div id="chat" class="chat-box"></div>
+    <div id="chat" class="chat-box">
+        <div class="history-divider" id="history-divider" style="display:none;">Past Conversation</div>
+        <div class="history-divider" id="new-divider" style="display:none;">New Conversation</div>
+    </div>
+
+    <div id="typing" class="typing-indicator" style="margin: 0 20px 10px;">
+        <span></span><span></span><span></span>
+    </div>
+
+    <div class="status-bar disconnected" id="status">● Connecting...</div>
 
     <div class="input-area">
-        <input type="text" id="msg" placeholder="Type message..." onkeydown="handleKey(event)">
-        <button onclick="sendMessage()">Send</button>
+        <input type="text" id="msg" placeholder="Type your message..." onkeydown="handleKey(event)">
+        <button id="send-btn" onclick="sendMessage()">Send</button>
     </div>
 
 </div>
@@ -152,6 +226,8 @@
 <script>
 
 let ws;
+let hasHistory = false;
+let isWaiting = false;
 
 function connectWebSocket() {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -161,82 +237,110 @@ function connectWebSocket() {
 
     ws.onopen = () => {
         console.log("WebSocket connected");
+        setStatus("connected", "● Connected");
+        document.getElementById("send-btn").disabled = false;
     };
 
     ws.onmessage = (event) => {
         let data = JSON.parse(event.data);
 
-        addMessage(data.response, "bot");
-
-        if (data.sources && data.sources.length > 0) {
-            showSources(data.sources);
+        if (data.type === "history") {
+            if (!hasHistory) {
+                hasHistory = true;
+                document.getElementById("history-divider").style.display = "flex";
+            }
+            addMessage(data.question, "user");
+            addMessage(data.response, "bot");
+            return;
         }
+
+        if (hasHistory && !document.getElementById("new-divider")._shown) {
+            document.getElementById("new-divider").style.display = "flex";
+            document.getElementById("new-divider")._shown = true;
+        }
+
+        hideTyping();
+        isWaiting = false;
+        document.getElementById("send-btn").disabled = false;
+
+        addMessage(data.response, "bot");
     };
 
     ws.onerror = (e) => {
         console.log("WebSocket error", e);
+        setStatus("disconnected", "● Connection error");
     };
 
     ws.onclose = () => {
         console.log("WebSocket closed... reconnecting");
-        setTimeout(connectWebSocket, 1000);
+        setStatus("disconnected", "● Disconnected — reconnecting...");
+        document.getElementById("send-btn").disabled = true;
+        hideTyping();
+        isWaiting = false;
+        setTimeout(connectWebSocket, 3000);
     };
 }
 
+setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+    }
+}, 20000);
+
 connectWebSocket();
 
+function setStatus(cls, text) {
+    const bar = document.getElementById("status");
+    bar.className = "status-bar " + cls;
+    bar.textContent = text;
+}
+
+function showTyping() {
+    document.getElementById("typing").style.display = "block";
+    document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
+}
+
+function hideTyping() {
+    document.getElementById("typing").style.display = "none";
+}
 
 function getSelectedDocument() {
     let selected = document.querySelector('input[name="document"]:checked');
     return selected ? selected.value : "";
 }
 
-
 function addMessage(text, sender) {
     let chat = document.getElementById("chat");
-
     let msg = document.createElement("div");
     msg.classList.add("message", sender);
     msg.innerText = text;
-
     chat.appendChild(msg);
     chat.scrollTop = chat.scrollHeight;
 }
-
-
-function showSources(sources) {
-    let chat = document.getElementById("chat");
-
-    let box = document.createElement("div");
-    box.classList.add("message", "bot", "source-box");
-
-    let text = "📄 Source:\n\n";
-
-    sources.forEach((s, index) => {
-        text += (index + 1) + ". " + s + "\n";
-    });
-
-    box.innerText = text;
-
-    chat.appendChild(box);
-    chat.scrollTop = chat.scrollHeight;
-}
-
 
 function sendMessage() {
     let input = document.getElementById("msg");
     let message = input.value.trim();
 
-    if (!message) return;
+    if (!message || isWaiting) return;
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-        alert("WebSocket not connected yet");
+        alert("WebSocket not connected yet. Please wait...");
         return;
+    }
+
+    if (hasHistory && !document.getElementById("new-divider")._shown) {
+        document.getElementById("new-divider").style.display = "flex";
+        document.getElementById("new-divider")._shown = true;
     }
 
     let documentId = getSelectedDocument();
 
     addMessage(message, "user");
+    showTyping();
+
+    isWaiting = true;
+    document.getElementById("send-btn").disabled = true;
 
     ws.send(JSON.stringify({
         message: message,
@@ -246,14 +350,10 @@ function sendMessage() {
     input.value = "";
 }
 
-
 function handleKey(event) {
-    if (event.key === "Enter") {
-        sendMessage();
-    }
+    if (event.key === "Enter") sendMessage();
 }
 
 </script>
-
 </body>
 </html>
