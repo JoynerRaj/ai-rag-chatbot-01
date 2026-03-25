@@ -5,3 +5,4 @@ requests
 pinecone
 google-generativeai
 python-multipart
+sentence-transformers
