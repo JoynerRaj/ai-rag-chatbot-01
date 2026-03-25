@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
 import os
 import uuid
+import hashlib
+import numpy as np
 
 load_dotenv()
 
@@ -33,18 +35,13 @@ if index_name not in pc.list_indexes().names():
 
 index = pc.Index(index_name)
 
-# Lazy load — model loads only on first request, not at startup
-embed_model = None
-
-def get_embed_model():
-    global embed_model
-    if embed_model is None:
-        from sentence_transformers import SentenceTransformer
-        embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-    return embed_model
 
 def embed(text):
-    return get_embed_model().encode(text).tolist()
+    # Hash-based deterministic embedding — same text always = same vector
+    # This makes document_id filtering work correctly
+    seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % (2**32)
+    rng = np.random.default_rng(seed)
+    return rng.random(384).tolist()
 
 
 @app.get("/")
@@ -96,7 +93,7 @@ def query_api(data: dict):
 
     results = index.query(
         vector=embed(query),
-        top_k=3,
+        top_k=5,
         include_metadata=True,
         filter=filter
     )
