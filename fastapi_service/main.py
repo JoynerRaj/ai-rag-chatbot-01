@@ -81,10 +81,7 @@ def query_api(data: dict):
     if not query:
         return {"results": []}
 
-    if document_id:
-        filter = {"document_id": document_id}
-    else:
-        filter = None
+    filter = None
 
     results = index.query(
         vector=embed(query),
