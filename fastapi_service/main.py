@@ -37,16 +37,18 @@ index = pc.Index(index_name)
 
 
 def embed(text):
-    # Hash-based deterministic embedding — same text always = same vector
-    # This makes document_id filtering work correctly
-    seed = int(hashlib.md5(text.encode()).hexdigest(), 16) % (2**32)
+    seed = int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16) % (2**32)
     rng = np.random.default_rng(seed)
-    return rng.random(384).tolist()
+    vector = rng.standard_normal(384)
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector = vector / norm
+    return vector.tolist()
 
 
 @app.get("/")
 def home():
-    return {"message": "FastAPI Service Running"}
+    return {"message": "FastAPI Upload Service Running"}
 
 
 @app.post("/upload")
@@ -78,37 +80,10 @@ async def upload_file(file: UploadFile = File(...)):
     }
 
 
-@app.post("/query")
-def query_api(data: dict):
-    query = data.get("query")
-    document_id = data.get("document_id")
-
-    if not query:
-        return {"results": []}
-
-    # Apply filter only when a specific document is selected
-    filter = None
-    if document_id and document_id.strip():
-        filter = {"document_id": {"$eq": document_id}}
-
-    results = index.query(
-        vector=embed(query),
-        top_k=5,
-        include_metadata=True,
-        filter=filter
-    )
-
-    texts = []
-    for match in results["matches"]:
-        texts.append({
-            "text": match["metadata"].get("text", ""),
-            "file_name": match["metadata"].get("file_name", "Unknown")
-        })
-
-    return {"results": texts}
-
-
 @app.delete("/delete-all")
 def delete_all():
-    index.delete(delete_all=True)
+    try:
+        index.delete(delete_all=True)
+    except Exception as e:
+        print("Delete error:", e)
     return {"message": "All vectors deleted from Pinecone"}

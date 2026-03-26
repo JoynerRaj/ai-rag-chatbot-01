@@ -1,14 +1,55 @@
 import json
-import requests
 import os
+import hashlib
+import numpy as np
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 import google.generativeai as genai
+from pinecone import Pinecone
 from .models import ChatHistory
 
 load_dotenv()
+
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Pinecone setup directly in Django
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index = pc.Index("rag-index")
+
+
+def embed(text):
+    """Same hash-based embedding as FastAPI — must match exactly."""
+    seed = int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16) % (2**32)
+    rng = np.random.default_rng(seed)
+    vector = rng.standard_normal(384)
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector = vector / norm
+    return vector.tolist()
+
+
+def query_pinecone(query, document_id=None):
+    """Query Pinecone directly — no FastAPI call needed."""
+    filter = None
+    if document_id and document_id.strip():
+        filter = {"document_id": {"$eq": document_id}}
+
+    results = index.query(
+        vector=embed(query),
+        top_k=3,
+        include_metadata=True,
+        filter=filter
+    )
+
+    texts = []
+    for match in results["matches"]:
+        texts.append({
+            "text": match["metadata"].get("text", ""),
+            "file_name": match["metadata"].get("file_name", "Unknown")
+        })
+
+    return texts
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -22,7 +63,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.session_key = session.session_key
         await self.accept()
 
-        # Load and send past chat history
+        # Send past chat history on connect
         history = await sync_to_async(list)(
             ChatHistory.objects.filter(
                 session_key=self.session_key
@@ -47,27 +88,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             query = data.get("message")
             document_id = data.get("document_id")
 
-            response = await sync_to_async(requests.post)(
-                "https://ai-rag-chatbot-01.onrender.com/query",
-                json={"query": query, "document_id": document_id},
-                timeout=30
-            )
-
-            if response.status_code != 200:
-                await self.send(text_data=json.dumps({
-                    "response": "FastAPI error: " + response.text,
-                }))
-                return
-
-            try:
-                data_json = response.json()
-            except Exception:
-                await self.send(text_data=json.dumps({
-                    "response": "Invalid response from FastAPI",
-                }))
-                return
-
-            results = data_json.get("results", [])
+            # Query Pinecone directly — no FastAPI call
+            results = await sync_to_async(query_pinecone)(query, document_id)
 
             if not results:
                 await self.send(text_data=json.dumps({
@@ -75,8 +97,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }))
                 return
 
-            top_chunks = results[:3]
-            context = "\n".join([item["text"] for item in top_chunks])
+            context = "\n".join([item["text"] for item in results])
 
             prompt = f"""
 Answer ONLY from the context below.
@@ -93,7 +114,7 @@ Question:
             gemini_response = await sync_to_async(model.generate_content)(prompt)
             answer = gemini_response.text
 
-            # Save to DB
+            # Save to Django DB
             await sync_to_async(ChatHistory.objects.create)(
                 session_key=self.session_key,
                 question=query,
