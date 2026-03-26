@@ -1,307 +1,339 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Chatbot</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+<title>AI Chatbot</title>
 
-        body {
-            font-family: Arial;
-            background: #0f172a;
-            color: white;
-        }
+<style>
+body {
+    margin: 0;
+    font-family: Arial;
+    background: #0f172a;
+    color: white;
+}
 
-        .container {
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
+.main {
+    display: flex;
+    height: 100vh;
+}
 
-        .header {
-            text-align: center;
-            padding: 15px;
-            font-size: 22px;
-            font-weight: bold;
-            border-bottom: 1px solid #1e293b;
-            background: #0f172a;
-        }
+.sidebar {
+    width: 260px;
+    background: #020617;
+    border-right: 1px solid #1e293b;
+    padding: 15px;
+}
 
-        .top-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 20px;
-            border-bottom: 1px solid #1e293b;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
+.sidebar h3 {
+    margin-bottom: 10px;
+}
 
-        .doc-select { font-size: 14px; }
+.chat-wrapper {
+    position: relative;
+}
 
-        .doc-list {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            margin-top: 4px;
-        }
+.chat-item {
+    display: block;
+    padding: 12px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    background: #1e293b;
+    color: white;
+    text-decoration: none;
+    transition: 0.2s;
+}
 
-        .top-bar-actions { display: flex; gap: 10px; }
+.chat-item:hover {
+    background: #334155;
+}
 
-        .top-bar-actions a {
-            color: white;
-            text-decoration: none;
-            padding: 8px 12px;
-            border-radius: 8px;
-            font-size: 14px;
-        }
+.chat-item.active {
+    background: #2563eb;
+}
 
-        .btn-manage { background: #2563eb; }
-        .btn-manage:hover { background: #1d4ed8; }
-        .btn-clear { background: #dc2626; }
-        .btn-clear:hover { background: #b91c1c; }
+.chat-title {
+    font-weight: bold;
+    font-size: 14px;
+}
 
-        .chat-box {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
+.chat-preview {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 3px;
+}
 
-        .history-divider {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 10px 0;
-            color: #64748b;
-            font-size: 12px;
-        }
+.chat-time {
+    font-size: 10px;
+    text-align: right;
+    color: #64748b;
+    margin-top: 4px;
+}
 
-        .history-divider::before,
-        .history-divider::after {
-            content: "";
-            flex: 1;
-            height: 1px;
-            background: #1e293b;
-        }
+.delete-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 12px;
+    color: #f87171;
+    text-decoration: none;
+    display: none;
+}
 
-        .message {
-            max-width: 70%;
-            padding: 10px 15px;
-            margin: 4px 0;
-            border-radius: 10px;
-            white-space: pre-line;
-            line-height: 1.5;
-            font-size: 14px;
-        }
+.chat-wrapper:hover .delete-btn {
+    display: block;
+}
 
-        .user { background: #2563eb; align-self: flex-end; }
-        .bot { background: #1e293b; align-self: flex-start; }
+.chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
 
-        .typing-indicator {
-            background: #1e293b;
-            align-self: flex-start;
-            padding: 12px 18px;
-            border-radius: 10px;
-            display: none;
-        }
+.header {
+    text-align: center;
+    padding: 15px;
+    border-bottom: 1px solid #1e293b;
+    font-weight: bold;
+}
 
-        .typing-indicator span {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #64748b;
-            border-radius: 50%;
-            margin: 0 2px;
-            animation: bounce 1.2s infinite;
-        }
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+}
 
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+.chat-box {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
 
-        @keyframes bounce {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-6px); }
-        }
+.message {
+    max-width: 70%;
+    padding: 10px;
+    border-radius: 10px;
+    margin: 5px 0;
+    
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
 
-        .input-area {
-            display: flex;
-            padding: 10px;
-            border-top: 1px solid #1e293b;
-            background: #020617;
-            gap: 8px;
-        }
+.user { background: #2563eb; align-self: flex-end; }
+.bot { background: #1e293b; align-self: flex-start; }
 
-        input[type="text"] {
-            flex: 1;
-            padding: 10px 14px;
-            border-radius: 8px;
-            border: 1px solid #1e293b;
-            outline: none;
-            background: #1e293b;
-            color: white;
-            font-size: 14px;
-        }
+.input-area {
+    display: flex;
+    padding: 10px;
+    gap: 10px;
+}
 
-        input[type="text"]:focus { border-color: #2563eb; }
-        input[type="text"]::placeholder { color: #64748b; }
+input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 6px;
+    border: none;
+}
 
-        button {
-            padding: 10px 18px;
-            border: none;
-            border-radius: 8px;
-            background: #22c55e;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-        }
+button {
+    padding: 10px;
+    background: #22c55e;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+}
 
-        button:hover { background: #16a34a; }
-        button:disabled { background: #374151; cursor: not-allowed; }
+button:hover {
+    background: #16a34a;
+}
+</style>
 
-        .status-bar {
-            text-align: center;
-            font-size: 11px;
-            padding: 4px;
-            background: #020617;
-        }
-
-        .status-bar.connected { color: #22c55e; }
-        .status-bar.disconnected { color: #ef4444; }
-    </style>
 </head>
 
 <body>
-<div class="container">
 
-    <div class="header">AI Chatbot</div>
+<div class="main">
 
-    <div class="top-bar">
-        <div class="doc-select">
-            <strong>Select Document:</strong>
-            <div class="doc-list">
-                <label>
-                    <input type="radio" name="document" value="" checked> All
-                </label>
+    <div class="sidebar">
+
+        <h3>Chats</h3>
+
+        <a href="/new-chat/" class="chat-item" style="background:#22c55e;">
+            + New Chat
+        </a>
+
+        {% for chat in chats %}
+        <div class="chat-wrapper">
+
+            <a href="/?chat_id={{ chat.id }}" 
+               class="chat-item {% if chat.id|stringformat:'s' == current_chat_id %}active{% endif %}">
+               
+                <div class="chat-title">{{ chat.title }}</div>
+                <div class="chat-preview">{{ chat.last_message }}</div>
+                <div class="chat-time">{{ chat.time }}</div>
+
+            </a>
+
+            <a href="/delete-chat/{{ chat.id }}/" 
+               onclick="return confirm('Delete this chat?')"
+               class="delete-btn">❌</a>
+
+        </div>
+        {% endfor %}
+
+    </div>
+
+    <div class="chat-area">
+
+        <div class="header">AI Chatbot</div>
+
+        <div class="top-bar">
+            <div>
+                <strong>Select Document:</strong>
+
+                <label><input type="radio" name="document" value="" checked> All</label>
+
                 {% for doc in documents %}
                 <label>
-                    <input type="radio" name="document" value="{{ doc.pinecone_id }}"> {{ doc }}
+                    <input type="radio" name="document" value="{{ doc.pinecone_id }}">
+                    {{ doc.title }}
                 </label>
                 {% endfor %}
             </div>
+
+            <div>
+                <a href="/documents/" style="color:white;">Manage</a>
+            </div>
         </div>
 
-        <div class="top-bar-actions">
-            <a href="/documents/" class="btn-manage">📄 Manage</a>
-            <a href="/clear-history/"
-               class="btn-clear"
-               onclick="return confirm('Clear all chat history?')">🗑️ Clear History</a>
+        <div id="chat" class="chat-box"></div>
+
+        <div class="input-area">
+            <input id="msg" placeholder="Type message..." onkeydown="handleKey(event)">
+            <button onclick="sendMessage()">Send</button>
         </div>
-    </div>
 
-    <div id="chat" class="chat-box">
-        <div class="history-divider" id="history-divider" style="display:none;">Past Conversation</div>
-        <div class="history-divider" id="new-divider" style="display:none;">New Conversation</div>
-    </div>
-
-    <div id="typing" class="typing-indicator" style="margin: 0 20px 10px;">
-        <span></span><span></span><span></span>
-    </div>
-
-    <div class="status-bar disconnected" id="status">● Connecting...</div>
-
-    <div class="input-area">
-        <input type="text" id="msg" placeholder="Type your message..." onkeydown="handleKey(event)">
-        <button id="send-btn" onclick="sendMessage()">Send</button>
     </div>
 
 </div>
 
 <script>
 
-let ws;
-let hasHistory = false;
-let isWaiting = false;
+let ws = null;
+let chatBox = document.getElementById("chat");
 
-function connectWebSocket() {
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = `${protocol}://${window.location.host}/ws/chat/`;
+const params = new URLSearchParams(window.location.search);
+const chatId = params.get("chat_id");
 
-    ws = new WebSocket(wsUrl);
+chatBox.innerHTML = "";
 
-    ws.onopen = () => {
-        console.log("WebSocket connected");
-        setStatus("connected", "● Connected");
-        document.getElementById("send-btn").disabled = false;
-    };
+if (chatId) {
+    ws = new WebSocket(
+        "ws://" + window.location.host + "/ws/chat/?chat_id=" + chatId
+    );
 
     ws.onmessage = (event) => {
-        let data = JSON.parse(event.data);
+        const data = JSON.parse(event.data);
 
         if (data.type === "history") {
-            if (!hasHistory) {
-                hasHistory = true;
-                document.getElementById("history-divider").style.display = "flex";
-            }
             addMessage(data.question, "user");
             addMessage(data.response, "bot");
             return;
         }
 
-        if (hasHistory && !document.getElementById("new-divider")._shown) {
-            document.getElementById("new-divider").style.display = "flex";
-            document.getElementById("new-divider")._shown = true;
-        }
+        removeTyping();
+        typeMessage(data.response);
 
-        hideTyping();
-        isWaiting = false;
-        document.getElementById("send-btn").disabled = false;
-
-        addMessage(data.response, "bot");
-    };
-
-    ws.onerror = (e) => {
-        console.log("WebSocket error", e);
-        setStatus("disconnected", "● Connection error");
-    };
-
-    ws.onclose = () => {
-        console.log("WebSocket closed... reconnecting");
-        setStatus("disconnected", "● Disconnected — reconnecting...");
-        document.getElementById("send-btn").disabled = true;
-        hideTyping();
-        isWaiting = false;
-        setTimeout(connectWebSocket, 3000);
+        updateSidebar(data.question);
     };
 }
 
-setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "ping" }));
-    }
-}, 20000);
+/* MESSAGE UI */
+function addMessage(text, type) {
+    let div = document.createElement("div");
+    div.className = "message " + type;
+    div.innerText = text;
 
-connectWebSocket();
-
-function setStatus(cls, text) {
-    const bar = document.getElementById("status");
-    bar.className = "status-bar " + cls;
-    bar.textContent = text;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+/* TYPING */
 function showTyping() {
-    document.getElementById("typing").style.display = "block";
-    document.getElementById("chat").scrollTop = document.getElementById("chat").scrollHeight;
+    let typing = document.createElement("div");
+    typing.className = "message bot";
+    typing.id = "typing";
+    typing.innerText = "Typing...";
+    chatBox.appendChild(typing);
+    chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function hideTyping() {
-    document.getElementById("typing").style.display = "none";
+function removeTyping() {
+    let typing = document.getElementById("typing");
+    if (typing) typing.remove();
+}
+
+function typeMessage(text) {
+    let div = document.createElement("div");
+    div.className = "message bot";
+    chatBox.appendChild(div);
+
+    let i = 0;
+
+    function typing() {
+        if (i < text.length) {
+            div.innerText += text.charAt(i);
+            i++;
+            setTimeout(typing, 15);
+        }
+    }
+
+    typing();
+}
+
+/* SIDEBAR LIVE UPDATE */
+function updateSidebar(lastMessage) {
+    let activeChat = document.querySelector(".chat-item.active");
+
+    if (!activeChat) return;
+
+    let preview = activeChat.querySelector(".chat-preview");
+    let time = activeChat.querySelector(".chat-time");
+
+    if (preview) {
+        preview.innerText = lastMessage.substring(0, 40);
+    }
+
+    if (time) {
+        let now = new Date();
+        let formatted = now.getHours().toString().padStart(2, '0') + ":" +
+                        now.getMinutes().toString().padStart(2, '0');
+        time.innerText = formatted;
+    }
+}
+
+/* SEND */
+function sendMessage() {
+    let msg = document.getElementById("msg").value;
+
+    if (!msg) return;
+
+    if (!ws) {
+        alert("Click + New Chat first");
+        return;
+    }
+
+    addMessage(msg, "user");
+    showTyping();
+
+    ws.send(JSON.stringify({
+        message: msg,
+        document_id: getSelectedDocument()
+    }));
+
+    document.getElementById("msg").value = "";
 }
 
 function getSelectedDocument() {
@@ -309,51 +341,11 @@ function getSelectedDocument() {
     return selected ? selected.value : "";
 }
 
-function addMessage(text, sender) {
-    let chat = document.getElementById("chat");
-    let msg = document.createElement("div");
-    msg.classList.add("message", sender);
-    msg.innerText = text;
-    chat.appendChild(msg);
-    chat.scrollTop = chat.scrollHeight;
-}
-
-function sendMessage() {
-    let input = document.getElementById("msg");
-    let message = input.value.trim();
-
-    if (!message || isWaiting) return;
-
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        alert("WebSocket not connected yet. Please wait...");
-        return;
-    }
-
-    if (hasHistory && !document.getElementById("new-divider")._shown) {
-        document.getElementById("new-divider").style.display = "flex";
-        document.getElementById("new-divider")._shown = true;
-    }
-
-    let documentId = getSelectedDocument();
-
-    addMessage(message, "user");
-    showTyping();
-
-    isWaiting = true;
-    document.getElementById("send-btn").disabled = true;
-
-    ws.send(JSON.stringify({
-        message: message,
-        document_id: documentId
-    }));
-
-    input.value = "";
-}
-
-function handleKey(event) {
-    if (event.key === "Enter") sendMessage();
+function handleKey(e) {
+    if (e.key === "Enter") sendMessage();
 }
 
 </script>
+
 </body>
 </html>

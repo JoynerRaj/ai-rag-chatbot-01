@@ -1,30 +1,61 @@
-from pinecone import Pinecone
-from sentence_transformers import SentenceTransformer
 import os
-from dotenv import load_dotenv
 from pinecone import Pinecone
+from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-index = pc.Index("rag-index")
+pc = Pinecone(api_key=PINECONE_API_KEY)
 
+INDEX_NAME = "rag-index"
+index = pc.Index(INDEX_NAME)
+
+# 🔥 Load fast embedding model (only once)
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
-def query_text(query, top_k=3):
-    query_embedding = model.encode([query])[0]
+def embed(text):
+    return model.encode(text).tolist()
+
+
+def query_pinecone(query, document_id=None, top_k=5):
+    filter_ = None
+    if document_id and document_id.strip():
+        filter_ = {"document_id": {"$eq": document_id}}
+
+    query_embedding = embed(query)
 
     results = index.query(
-        vector=query_embedding.tolist(),
+        vector=query_embedding,
         top_k=top_k,
-        include_metadata=True
+        include_metadata=True,
+        filter=filter_
     )
 
     texts = []
 
+    SIMILARITY_THRESHOLD = 0.0
+
     for match in results["matches"]:
-        texts.append(match["metadata"]["text"])
+        score = match.get("score", 0)
+        print("DEBUG:", score, match["metadata"].get("text"))
+
+        if score < SIMILARITY_THRESHOLD:
+            continue
+
+        texts.append({
+            "text": match["metadata"].get("text", ""),
+            "file_name": match["metadata"].get("file_name", "Unknown")
+        })
 
     return texts
+
+
+def delete_document_vectors(document_id):
+    if document_id:
+        index.delete(
+            delete_all=False,
+            filter={"document_id": {"$eq": document_id}}
+        )

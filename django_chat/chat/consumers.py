@@ -1,107 +1,75 @@
 import json
 import os
-import hashlib
-import numpy as np
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 import google.generativeai as genai
-from pinecone import Pinecone
-from .models import ChatHistory
+from .models import ChatHistory, ChatSession
+from .pinecone_utils import query_pinecone
 
 load_dotenv()
-
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-# Pinecone setup directly in Django
-pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-index = pc.Index("rag-index")
-
-
-def embed(text):
-    """Same hash-based embedding as FastAPI — must match exactly."""
-    seed = int(hashlib.md5(text.encode("utf-8")).hexdigest(), 16) % (2**32)
-    rng = np.random.default_rng(seed)
-    vector = rng.standard_normal(384)
-    norm = np.linalg.norm(vector)
-    if norm > 0:
-        vector = vector / norm
-    return vector.tolist()
-
-
-def query_pinecone(query, document_id=None):
-    """Query Pinecone directly — no FastAPI call needed."""
-    filter = None
-    if document_id and document_id.strip():
-        filter = {"document_id": {"$eq": document_id}}
-
-    results = index.query(
-        vector=embed(query),
-        top_k=3,
-        include_metadata=True,
-        filter=filter
-    )
-
-    texts = []
-    for match in results["matches"]:
-        texts.append({
-            "text": match["metadata"].get("text", ""),
-            "file_name": match["metadata"].get("file_name", "Unknown")
-        })
-
-    return texts
-
 
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
-        session = self.scope["session"]
-
-        if not session.session_key:
-            await sync_to_async(session.save)()
-
-        self.session_key = session.session_key
         await self.accept()
 
-        # Send past chat history on connect
-        history = await sync_to_async(list)(
-            ChatHistory.objects.filter(
-                session_key=self.session_key
-            ).order_by("asked_at")
-        )
+        query_string = self.scope["query_string"].decode()
 
-        for item in history:
-            await self.send(text_data=json.dumps({
-                "type": "history",
-                "question": item.question,
-                "response": item.answer,
-            }))
+        chat_id = None
+        if "chat_id=" in query_string:
+            value = query_string.split("chat_id=")[-1]
+            if value and value != "null":
+                chat_id = value
+
+        self.chat_id = int(chat_id) if chat_id else None
+
+        if self.chat_id:
+            history = await sync_to_async(list)(
+                ChatHistory.objects.filter(session_id=int(self.chat_id)).order_by("created_at")
+            )
+
+            for item in history:
+                await self.send(text_data=json.dumps({
+                    "type": "history",
+                    "question": item.question,
+                    "response": item.answer,
+                }))
 
     async def receive(self, text_data):
         try:
             data = json.loads(text_data)
 
-            # Ignore ping
             if data.get("type") == "ping":
                 return
 
-            query = data.get("message")
+            query = data.get("message", "").strip()
             document_id = data.get("document_id")
 
-            # Query Pinecone directly — no FastAPI call
+            if not query:
+                await self.send(text_data=json.dumps({
+                    "response": "Please enter a valid question.",
+                }))
+                return
+
             results = await sync_to_async(query_pinecone)(query, document_id)
 
             if not results:
                 await self.send(text_data=json.dumps({
-                    "response": "No relevant data found in the selected document.",
+                    "response": "This information is not available in the selected document.",
                 }))
                 return
 
             context = "\n".join([item["text"] for item in results])
 
             prompt = f"""
-Answer ONLY from the context below.
-If the answer is not found in the context, say "This information is not available in the selected document."
+You MUST answer ONLY from the given context.
+DO NOT use any outside knowledge.
+
+If the answer is not clearly present in the context,
+reply EXACTLY with:
+"This information is not available in the selected document."
 
 Context:
 {context}
@@ -111,19 +79,33 @@ Question:
 """
 
             model = genai.GenerativeModel("gemini-2.5-flash")
-            gemini_response = await sync_to_async(model.generate_content)(prompt)
-            answer = gemini_response.text
 
-            # Save to Django DB
-            await sync_to_async(ChatHistory.objects.create)(
-                session_key=self.session_key,
-                question=query,
-                answer=answer,
-                sources=""
-            )
+            gemini_response = await sync_to_async(
+                model.generate_content
+            )(prompt)
+
+            answer = gemini_response.text.strip()
+
+            if "not available" in answer.lower():
+                answer = "This information is not available in the selected document."
+
+            if self.chat_id:
+                await sync_to_async(ChatHistory.objects.create)(
+                    session_id=int(self.chat_id),
+                    question=query,
+                     answer=answer
+                )
+                session = await sync_to_async(ChatSession.objects.get)(id=self.chat_id)
+
+                if session.title == "New Chat":
+                    new_title = query[:30] + ("..." if len(query) > 30 else "")
+                    session.title = new_title
+                    await sync_to_async(session.save)()
 
             await self.send(text_data=json.dumps({
                 "response": answer,
+                "question": query,
+                "chat_id": self.chat_id
             }))
 
         except Exception as e:

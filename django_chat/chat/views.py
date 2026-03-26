@@ -1,11 +1,41 @@
 from django.shortcuts import render, redirect
-from .models import Document, ChatHistory
+from .models import Document, ChatHistory, ChatSession
 import requests
+from .pinecone_utils import delete_document_vectors
 
+
+from django.utils.timezone import localtime
 
 def chat_page(request):
     documents = Document.objects.all()
-    return render(request, 'chat.html', {'documents': documents})
+    chats = ChatSession.objects.all().order_by("-created_at")
+
+    chat_id = request.GET.get("chat_id")
+
+    chat_data = []
+
+    for chat in chats:
+        last = ChatHistory.objects.filter(session=chat).order_by("-created_at").first()
+
+        if last:
+            last_message = last.question[:40]
+            time = localtime(last.created_at).strftime("%H:%M")
+        else:
+            last_message = "No messages yet"
+            time = ""
+
+        chat_data.append({
+            "id": chat.id,
+            "title": chat.title,
+            "last_message": last_message,
+            "time": time
+        })
+
+    return render(request, 'chat.html', {
+        'documents': documents,
+        'chats': chat_data,
+        'current_chat_id': str(chat_id) if chat_id else ""
+    })
 
 
 def upload_page(request):
@@ -16,41 +46,36 @@ def upload_page(request):
         if not file:
             return render(request, "upload.html", {"error": "No file selected"})
 
-        try:
-            content = file.read().decode("utf-8")
-        except:
-            return render(request, "upload.html", {"error": "File must be text (.txt)"})
-
-        # Reset file pointer before sending to FastAPI
-        file.seek(0)
-
-        # Send to FastAPI first to get pinecone_id
         pinecone_id = ""
+        content = ""
+
         try:
             files = {"file": file}
             res = requests.post(
                 "https://ai-rag-chatbot-01.onrender.com/upload",
                 files=files,
-                timeout=60  # ADD THIS — wait up to 60s for Render to wake up
+                timeout=60
             )
+
             print("FastAPI status:", res.status_code)
             print("FastAPI response:", res.text)
 
             if res.status_code == 200:
                 pinecone_id = res.json().get("document_id", "")
-                print("Got pinecone_id:", pinecone_id)
+
+                if file.name.endswith(".txt"):
+                    file.seek(0)
+                    content = file.read().decode("utf-8")
 
         except Exception as e:
             print("FastAPI upload failed:", e)
-            # Save to Django even if FastAPI fails
-            pinecone_id = ""
 
-        # Save in Django DB with pinecone_id
         doc = Document.objects.create(
             title=title,
             content=content,
             pinecone_id=pinecone_id
         )
+
         print("Saved to Django DB, id:", doc.id, "pinecone_id:", doc.pinecone_id)
 
         return redirect("documents")
@@ -67,13 +92,12 @@ def delete_document(request, id):
     doc = Document.objects.get(id=id)
 
     try:
-        res = requests.delete("https://ai-rag-chatbot-01.onrender.com/delete-all")
-        print("FastAPI delete response:", res.status_code, res.text)
+        if doc.pinecone_id:
+            delete_document_vectors(doc.pinecone_id)
     except Exception as e:
-        print("Delete API failed:", e)
+        print("Pinecone delete error:", e)
 
     doc.delete()
-
     return redirect("documents")
 
 
@@ -94,3 +118,17 @@ def clear_history(request):
     if session_key:
         ChatHistory.objects.filter(session_key=session_key).delete()
     return redirect("chat")
+
+def create_chat(request):
+    from .models import ChatSession
+
+    chat = ChatSession.objects.create(title="New Chat")
+    return redirect(f"/?chat_id={chat.id}")
+
+def delete_chat(request, chat_id):
+    from .models import ChatSession
+
+    chat = ChatSession.objects.get(id=chat_id)
+    chat.delete()
+
+    return redirect("/")
