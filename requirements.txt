@@ -1,0 +1,16 @@
+django
+channels
+daphne
+requests
+python-dotenv
+google-generativeai
+
+fastapi
+uvicorn
+python-multipart
+numpy
+sentence-transformers
+torch
+PyMuPDF
+python-docx
+pinecone

@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-python-dotenv
-pinecone
-python-multipart
-numpy
-sentence-transformers
