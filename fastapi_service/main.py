@@ -1,3 +1,5 @@
+from operator import index
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -30,19 +32,19 @@ if __name__ == "__main__":
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-pc = Pinecone(api_key=PINECONE_API_KEY)
+def get_index():
+    pc = Pinecone(api_key=PINECONE_API_KEY)
+    index_name = "rag-index"
 
-index_name = "rag-index"
+    if index_name not in pc.list_indexes().names():
+        pc.create_index(
+            name=index_name,
+            dimension=384,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        )
 
-if index_name not in pc.list_indexes().names():
-    pc.create_index(
-        name=index_name,
-        dimension=384,
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
-    )
-
-index = pc.Index(index_name)
+    return pc.Index(index_name)
 
 model = None
 
@@ -116,6 +118,7 @@ async def upload_file(file: UploadFile = File(...)):
             }
         })
 
+    index = get_index()
     index.upsert(vectors)
 
     return {
