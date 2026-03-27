@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: django-rag
+    env: python
+    rootDir: django_chat
+    buildCommand: pip install -r requirements.txt
+    startCommand: daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
+    preDeployCommand: python manage.py migrate && python manage.py collectstatic --noinput
