@@ -6,3 +6,4 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python -m daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
     preDeployCommand: python manage.py migrate && python manage.py collectstatic --noinput
+    preDeployCommand: python manage.py migrate

@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = '9ej_vq0nny95h2%bod%zn029*i&js%qd)g3=lt+&!ql=+4at)v'
 
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ["django-rag.onrender.com"]
 
