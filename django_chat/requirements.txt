@@ -6,3 +6,4 @@ python-dotenv
 google-generativeai
 dj-database-url
 psycopg2-binary
+pinecone
