@@ -44,10 +44,18 @@ if index_name not in pc.list_indexes().names():
 
 index = pc.Index(index_name)
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+model = None
+
+def get_model():
+    global model
+    if model is None:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+    return model
 
 def embed(text):
-    return model.encode(text).tolist()
+    model_instance = get_model()
+    return model_instance.encode(text).tolist()
 
 def split_text(text, chunk_size=30):
     words = text.split()
