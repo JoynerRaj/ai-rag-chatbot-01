@@ -4,3 +4,4 @@ daphne
 requests
 python-dotenv
 google-generativeai
+dj-database-url
