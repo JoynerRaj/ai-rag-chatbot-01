@@ -4,7 +4,7 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = '9ej_vq0nny95h2%bod%zn029*i&js%qd)g3=lt+&!ql=+4at)v'
+SECRET_KEY = '9ej_vq0nny95h2%bod%zn029*i&js%qd)g3=lt+&!ql=+4at$v'
 
 DEBUG = True
 
@@ -24,18 +24,22 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
     "channels",
     "chat",
 ]
 
 # ========================
-# CHANNELS
+# CHANNELS (FIXED 🔥)
 # ========================
 ASGI_APPLICATION = "django_chat.asgi.application"
 
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [os.getenv("REDIS_URL")],
+        },
     },
 }
 
@@ -50,7 +54,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',       
+    'django.contrib.messages.middleware.MessageMiddleware',
 
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -78,17 +82,15 @@ TEMPLATES = [
 WSGI_APPLICATION = 'django_chat.wsgi.application'
 
 # ========================
-# DATABASE (IMPORTANT 🔥)
+# DATABASE
 # ========================
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
-    # Production (Render PostgreSQL)
     DATABASES = {
         "default": dj_database_url.parse(DATABASE_URL)
     }
 else:
-    # Local (SQLite)
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -97,7 +99,7 @@ else:
     }
 
 # ========================
-# AUTH VALIDATORS
+# PASSWORD VALIDATION
 # ========================
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -124,8 +126,10 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static"),
 ]
 
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+
 # ========================
-# MEDIA FILES (optional)
+# MEDIA FILES
 # ========================
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -134,5 +138,3 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # DEFAULT FIELD
 # ========================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
