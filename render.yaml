@@ -8,10 +8,7 @@ services:
 
     startCommand: >
       bash -c "
-      echo 'RUNNING MIGRATIONS...' &&
       python manage.py migrate &&
-      echo 'MIGRATION DONE' &&
       python manage.py collectstatic --noinput &&
-      echo 'STARTING SERVER' &&
       daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
       "
