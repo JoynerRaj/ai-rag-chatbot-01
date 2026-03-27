@@ -6,8 +6,9 @@ services:
 
     buildCommand: pip install -r requirements.txt
 
-    startCommand: >
+    startCommand: bash -c "
       python manage.py makemigrations &&
       python manage.py migrate &&
       python manage.py collectstatic --noinput &&
-      python -m daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
+      daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
+    "
