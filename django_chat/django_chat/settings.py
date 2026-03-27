@@ -6,9 +6,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = '9ej_vq0nny95h2%bod%zn029*i&js%qd)g3=lt+&!ql=+4at)v'
 
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ["django-rag.onrender.com"]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://django-rag.onrender.com"
@@ -134,3 +134,5 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # DEFAULT FIELD
 # ========================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
