@@ -4,10 +4,14 @@ services:
     env: python
     rootDir: django_chat
 
-    buildCommand: |
-      pip install -r requirements.txt
-      python manage.py makemigrations
-      python manage.py migrate
-      python manage.py collectstatic --noinput
+    buildCommand: pip install -r requirements.txt
 
-    startCommand: daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
+    startCommand: >
+      bash -c "
+      echo 'RUNNING MIGRATIONS...' &&
+      python manage.py migrate &&
+      echo 'MIGRATION DONE' &&
+      python manage.py collectstatic --noinput &&
+      echo 'STARTING SERVER' &&
+      daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
+      "
