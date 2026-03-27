@@ -4,7 +4,6 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
 import os
 import uuid
 import fitz
