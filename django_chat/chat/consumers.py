@@ -104,7 +104,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 json={"query": query, "document_id": document_id},
                 timeout=30  # Don't block forever if FastAPI is still loading up
             )
-            res.raise_for_status()
+            if not res.ok:
+                try:
+                    error_detail = res.json().get("detail", res.text)
+                except:
+                    error_detail = res.text
+                return f"FastAPI Error: {error_detail}"
+            
             results = res.json()
             
             print(f"[{self.chat_id}] FastAPI returned {len(results) if results else 0} results.")

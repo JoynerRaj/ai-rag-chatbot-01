@@ -146,17 +146,33 @@ class SearchQuery(BaseModel):
 
 @app.post("/search")
 def search_pinecone(req: SearchQuery):
-    query_embedding = embed(req.query)
-    filter_ = None
-    if req.document_id and req.document_id.strip():
-        filter_ = {"document_id": {"$eq": req.document_id}}
+    try:
+        query_embedding = embed(req.query)
+        filter_ = None
+        if req.document_id and req.document_id.strip():
+            filter_ = {"document_id": {"$eq": req.document_id}}
 
-    index = get_index()
-    results = index.query(
-        vector=query_embedding,
-        top_k=req.top_k,
-        include_metadata=True,
-        filter=filter_
-    )
-    
-    return [match.metadata for match in results.matches]
+        index = get_index()
+        results = index.query(
+            vector=query_embedding,
+            top_k=req.top_k,
+            include_metadata=True,
+            filter=filter_ if filter_ else None
+        )
+        
+        # Pinecone objects must be converted to native dicts for JSON serialization
+        results_dict = results.to_dict()
+        
+        matches = []
+        for match in results_dict.get("matches", []):
+            matches.append({
+                "id": match.get("id"),
+                "score": match.get("score"),
+                "text": match.get("metadata", {}).get("text", "")
+            })
+        return matches
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
