@@ -38,17 +38,19 @@ def get_index():
 
     return pc.Index(index_name)
 
+# Safely import PyTorch on Main Thread to prevent C++ Extension native crashes in Background threads
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+import torch
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+from sentence_transformers import SentenceTransformer
+
 model = None
 
 def get_model():
     global model
     if model is None:
-        import os
-        os.environ["OMP_NUM_THREADS"] = "1"
-        import torch
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-        from sentence_transformers import SentenceTransformer
         model = SentenceTransformer("all-MiniLM-L6-v2")
     return model
 
@@ -56,14 +58,13 @@ def get_model():
 async def startup_event():
     import threading
     def preload_model():
-        print("Pre-loading PyTorch Model in background thread to avoid 502 Timeout...")
+        print("Pre-loading HuggingFace weights in background thread...")
         try:
             get_model()
             print("PyTorch Model Initialized Successfully!")
         except Exception as e:
             print(f"Failed to preload model: {e}")
             
-    # Spawn background thread so Uvicorn can immediately bind the port for Render health checks
     thread = threading.Thread(target=preload_model, daemon=True)
     thread.start()
 
