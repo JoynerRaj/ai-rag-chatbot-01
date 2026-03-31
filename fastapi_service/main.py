@@ -54,9 +54,18 @@ def get_model():
 
 @app.on_event("startup")
 async def startup_event():
-    print("Pre-loading PyTorch Model to avoid 502 Timeout...")
-    get_model()
-    print("PyTorch Model Initialized Successfully!")
+    import threading
+    def preload_model():
+        print("Pre-loading PyTorch Model in background thread to avoid 502 Timeout...")
+        try:
+            get_model()
+            print("PyTorch Model Initialized Successfully!")
+        except Exception as e:
+            print(f"Failed to preload model: {e}")
+            
+    # Spawn background thread so Uvicorn can immediately bind the port for Render health checks
+    thread = threading.Thread(target=preload_model, daemon=True)
+    thread.start()
 
 def embed(text):
     model_instance = get_model()
