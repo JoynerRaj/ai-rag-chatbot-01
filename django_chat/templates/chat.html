@@ -233,7 +233,7 @@ if (chatId) {
     const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
 
     ws = new WebSocket(
-        protocol + window.location.host + "/ws/chat/?chat_id=" + chatId
+        protocol + window.location.host + "/ws/chat/?chat_id=" + chatId 
     );
 
     ws.onmessage = (event) => {
@@ -327,6 +327,12 @@ function sendMessage() {
         return;
     }
 
+    // ✅ CHECK IF CONNECTED
+    if (ws.readyState !== 1) {
+        alert("Connection not ready. Please wait 2 seconds and try again.");
+        return;
+    }
+
     addMessage(msg, "user");
     showTyping();
 
@@ -338,13 +344,16 @@ function sendMessage() {
     document.getElementById("msg").value = "";
 }
 
-function getSelectedDocument() {
-    let selected = document.querySelector('input[name="document"]:checked');
-    return selected ? selected.value : "";
+function handleKey(event) {
+    if (event.key === "Enter") {
+        sendMessage();
+    }
 }
 
-function handleKey(e) {
-    if (e.key === "Enter") sendMessage();
+/* GET DOCUMENT */
+function getSelectedDocument() {
+    let doc = document.querySelector('input[name="document"]:checked');
+    return doc ? doc.value : "";
 }
 
 </script>

@@ -8,7 +8,7 @@ SECRET_KEY = '9ej_vq0nny95h2%bod%zn029*i&js%qd)g3=lt+&!ql=+4at$v'
 
 DEBUG = True
 
-ALLOWED_HOSTS = ["django-rag.onrender.com"]
+ALLOWED_HOSTS = ["django-rag.onrender.com", "*"]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://django-rag.onrender.com"
@@ -18,6 +18,7 @@ CSRF_TRUSTED_ORIGINS = [
 # APPS
 # ========================
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

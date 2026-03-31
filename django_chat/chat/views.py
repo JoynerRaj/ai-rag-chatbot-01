@@ -49,10 +49,12 @@ def upload_page(request):
         pinecone_id = ""
         content = ""
 
+        import os
+        fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
         try:
             files = {"file": file}
             res = requests.post(
-                "https://ai-rag-chatbot-01.onrender.com/upload",
+                fastapi_url,
                 files=files,
                 timeout=60
             )

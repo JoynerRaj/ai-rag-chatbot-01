@@ -21,7 +21,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app  = FastAPI()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
