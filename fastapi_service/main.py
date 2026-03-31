@@ -43,9 +43,20 @@ model = None
 def get_model():
     global model
     if model is None:
+        import os
+        os.environ["OMP_NUM_THREADS"] = "1"
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer("all-MiniLM-L6-v2")
     return model
+
+@app.on_event("startup")
+async def startup_event():
+    print("Pre-loading PyTorch Model to avoid 502 Timeout...")
+    get_model()
+    print("PyTorch Model Initialized Successfully!")
 
 def embed(text):
     model_instance = get_model()
