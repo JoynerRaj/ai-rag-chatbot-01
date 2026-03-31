@@ -10,17 +10,23 @@ index = None
 def get_model():
     global model
     if model is None:
+        print(">> [Model] Importing SentenceTransformer...")
         from sentence_transformers import SentenceTransformer
+        print(">> [Model] Downloading/Loading 'all-MiniLM-L6-v2'...")
         model = SentenceTransformer("all-MiniLM-L6-v2")
+        print(">> [Model] Successfully loaded 'all-MiniLM-L6-v2'.")
     return model
 
 
 def get_index():
     global index
     if index is None:
+        print(">> [Pinecone] Initializing Pinecone Client...")
         from pinecone import Pinecone
         pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        print(">> [Pinecone] Fetching 'rag-index'...")
         index = pc.Index("rag-index")
+        print(">> [Pinecone] Successfully connected to 'rag-index'.")
     return index
 
 

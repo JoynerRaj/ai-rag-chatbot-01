@@ -89,9 +89,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     # 🔥 BACKGROUND FUNCTION (NO ASYNC HERE)
     def process_query(self, query, document_id):
+        import traceback
         try:
+            print(f"[{self.chat_id}] Starting process_query for: {query}")
+            
             # 🔍 Pinecone
+            print(f"[{self.chat_id}] Querying Pinecone...")
             results = query_pinecone(query, document_id)
+            print(f"[{self.chat_id}] Pinecone returned {len(results) if results else 0} results.")
 
             if not results:
                 return "This information is not available in the selected document."
@@ -114,8 +119,10 @@ Question:
 """
 
             # 🤖 Gemini
+            print(f"[{self.chat_id}] Calling Gemini API...")
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(prompt)
+            print(f"[{self.chat_id}] Gemini responded successfully.")
 
             answer = response.text.strip()
 
@@ -125,4 +132,6 @@ Question:
             return answer
 
         except Exception as e:
-            return "Error: " + str(e)
+            print(f"[{self.chat_id}] ERROR in process_query: {e}")
+            traceback.print_exc()
+            return "Error: " + str(e)
