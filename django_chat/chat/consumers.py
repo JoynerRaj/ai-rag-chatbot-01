@@ -57,8 +57,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }))
                 return
 
-            # 🔥 IMPORTANT: Run heavy AI work in background thread
-            answer = await asyncio.to_thread(self.process_query, query, document_id)
+            # 🔥 IMPORTANT: Run heavy AI work in background thread using sync_to_async
+            from asgiref.sync import sync_to_async
+            answer = await sync_to_async(self.process_query, thread_sensitive=False)(query, document_id)
 
             # Save history
             if self.chat_id:

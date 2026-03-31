@@ -10,7 +10,12 @@ index = None
 def get_model():
     global model
     if model is None:
+        import os
+        os.environ["OMP_NUM_THREADS"] = "1"
         print(">> [Model] Importing SentenceTransformer...")
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         from sentence_transformers import SentenceTransformer
         print(">> [Model] Downloading/Loading 'all-MiniLM-L6-v2'...")
         model = SentenceTransformer("all-MiniLM-L6-v2")
