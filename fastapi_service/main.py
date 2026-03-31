@@ -161,15 +161,17 @@ def search_pinecone(req: SearchQuery):
             filter=filter_ if filter_ else None
         )
         
-        # Pinecone objects must be converted to native dicts for JSON serialization
-        results_dict = results.to_dict()
-        
         matches = []
-        for match in results_dict.get("matches", []):
+        for match in results.matches:
+            # metadata can be None if not found, provide fallback
+            text_context = ""
+            if match.metadata:
+                text_context = match.metadata.get("text", "")
+            
             matches.append({
-                "id": match.get("id"),
-                "score": match.get("score"),
-                "text": match.get("metadata", {}).get("text", "")
+                "id": match.id,
+                "score": match.score,
+                "text": text_context
             })
         return matches
     except Exception as e:
