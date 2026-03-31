@@ -6,7 +6,6 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 import google.generativeai as genai
 from .models import ChatHistory, ChatSession
-from .pinecone_utils import query_pinecone
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -94,10 +93,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             print(f"[{self.chat_id}] Starting process_query for: {query}")
             
-            # 🔍 Pinecone
-            print(f"[{self.chat_id}] Querying Pinecone...")
-            results = query_pinecone(query, document_id)
-            print(f"[{self.chat_id}] Pinecone returned {len(results) if results else 0} results.")
+            # 🔍 Ask FastAPI to handle Heavy Pinecone/PyTorch Embedding
+            print(f"[{self.chat_id}] Asking FastAPI for context embeddings...")
+            import requests
+            fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
+            search_api = fastapi_url.replace("/upload", "") + "/search"
+            
+            res = requests.post(
+                search_api,
+                json={"query": query, "document_id": document_id},
+                timeout=30  # Don't block forever if FastAPI is still loading up
+            )
+            res.raise_for_status()
+            results = res.json()
+            
+            print(f"[{self.chat_id}] FastAPI returned {len(results) if results else 0} results.")
 
             if not results:
                 return "This information is not available in the selected document."

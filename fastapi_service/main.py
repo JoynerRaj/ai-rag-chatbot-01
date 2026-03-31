@@ -137,3 +137,26 @@ async def upload_file(file: UploadFile = File(...)):
         "message": "Stored in Pinecone successfully",
         "document_id": document_id
     }
+
+from pydantic import BaseModel
+class SearchQuery(BaseModel):
+    query: str
+    document_id: str = None
+    top_k: int = 5
+
+@app.post("/search")
+def search_pinecone(req: SearchQuery):
+    query_embedding = embed(req.query)
+    filter_ = None
+    if req.document_id and req.document_id.strip():
+        filter_ = {"document_id": {"$eq": req.document_id}}
+
+    index = get_index()
+    results = index.query(
+        vector=query_embedding,
+        top_k=req.top_k,
+        include_metadata=True,
+        filter=filter_
+    )
+    
+    return [match.metadata for match in results.matches]
