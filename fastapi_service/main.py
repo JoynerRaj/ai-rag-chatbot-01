@@ -136,7 +136,8 @@ async def upload_file(file: UploadFile = File(...)):
 
     return {
         "message": "Stored in Pinecone successfully",
-        "document_id": document_id
+        "document_id": document_id,
+        "text": text
     }
 
 from pydantic import BaseModel
@@ -174,6 +175,20 @@ def search_pinecone(req: SearchQuery):
                 "text": text_context
             })
         return matches
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/delete/{document_id}")
+def delete_document(document_id: str):
+    try:
+        index = get_index()
+        index.delete(
+            filter={"document_id": {"$eq": document_id}}
+        )
+        return {"message": "Deleted successfully"}
     except Exception as e:
         import traceback
         traceback.print_exc()

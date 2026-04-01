@@ -1,14 +1,70 @@
 import json
 import os
-import asyncio
+import requests
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from .models import ChatHistory, ChatSession
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+# ── RAG Tool Definition ──────────────────────────────────────────────────────
+# Gemini will autonomously decide WHEN to call this tool based on the user's message.
+# For greetings/casual chat → it won't call it.
+# For document-specific questions → it will call it to fetch context.
+search_doc_tool = types.Tool(
+    function_declarations=[
+        types.FunctionDeclaration(
+            name="search_documents",
+            description=(
+                "Search the uploaded knowledge base documents for information relevant "
+                "to the user's question. Use this when the user asks a specific factual "
+                "question that may be answered by the uploaded documents. "
+                "Do NOT use this for greetings, thanks, or casual conversation."
+            ),
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "query": types.Schema(
+                        type=types.Type.STRING,
+                        description="The search query to look up in the documents"
+                    ),
+                    "document_id": types.Schema(
+                        type=types.Type.STRING,
+                        description="Optional UUID of a specific document to search within. Leave empty to search all."
+                    )
+                },
+                required=["query"]
+            )
+        )
+    ]
+)
+
+
+def call_rag_search(query: str, document_id: str = None) -> str:
+    """Calls FastAPI /search and returns relevant context text."""
+    try:
+        fastapi_url = os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
+        search_api = fastapi_url.replace("/upload", "") + "/search"
+
+        payload = {"query": query, "top_k": 5}
+        if document_id and str(document_id).strip():
+            payload["document_id"] = document_id
+
+        res = requests.post(search_api, json=payload, timeout=30)
+        if not res.ok:
+            return f"[RAG search failed: {res.text}]"
+
+        results = res.json()
+        if not results:
+            return "No relevant information found in the uploaded documents."
+
+        chunks = "\n---\n".join([item["text"] for item in results])
+        return f"Relevant document excerpts:\n{chunks}"
+    except Exception as e:
+        return f"[RAG search error: {str(e)}]"
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -18,7 +74,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
         query_string = self.scope["query_string"].decode()
-
         chat_id = None
         if "chat_id=" in query_string:
             value = query_string.split("chat_id=")[-1]
@@ -27,12 +82,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         self.chat_id = int(chat_id) if chat_id else None
 
-        # Load chat history
         if self.chat_id:
             history = await sync_to_async(list)(
                 ChatHistory.objects.filter(session_id=self.chat_id).order_by("created_at")
             )
-
             for item in history:
                 await self.send(text_data=json.dumps({
                     "type": "history",
@@ -51,31 +104,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
             document_id = data.get("document_id")
 
             if not query:
-                await self.send(json.dumps({
-                    "response": "Please enter a valid question."
-                }))
+                await self.send(json.dumps({"response": "Please enter a valid question."}))
                 return
 
-            # 🔥 IMPORTANT: Run heavy AI work in background thread using sync_to_async
-            from asgiref.sync import sync_to_async
+            # Run AI in background thread
             answer = await sync_to_async(self.process_query, thread_sensitive=False)(query, document_id)
 
-            # Save history
+            # Save to DB
             if self.chat_id:
                 await sync_to_async(ChatHistory.objects.create)(
                     session_id=self.chat_id,
                     question=query,
                     answer=answer
                 )
-
                 session = await sync_to_async(ChatSession.objects.get)(id=self.chat_id)
-
                 if session.title == "New Chat":
-                    new_title = query[:30] + ("..." if len(query) > 30 else "")
-                    session.title = new_title
+                    session.title = query[:30] + ("..." if len(query) > 30 else "")
                     await sync_to_async(session.save)()
 
-            # Send response
             await self.send(json.dumps({
                 "response": answer,
                 "question": query,
@@ -83,72 +129,87 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }))
 
         except Exception as e:
-            await self.send(json.dumps({
-                "response": "Error: " + str(e),
-            }))
+            await self.send(json.dumps({"response": "Error: " + str(e)}))
 
-    # 🔥 BACKGROUND FUNCTION (NO ASYNC HERE)
-    def process_query(self, query, document_id):
+    # ── Agentic RAG Loop (background thread, NO async) ────────────────────────
+    def process_query(self, query: str, document_id: str):
         import traceback
         try:
-            print(f"[{self.chat_id}] Starting process_query for: {query}")
-            
-            # 🔍 Ask FastAPI to handle Heavy Pinecone/PyTorch Embedding
-            print(f"[{self.chat_id}] Asking FastAPI for context embeddings...")
-            import requests
-            fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
-            search_api = fastapi_url.replace("/upload", "") + "/search"
-            
-            res = requests.post(
-                search_api,
-                json={"query": query, "document_id": document_id},
-                timeout=30  # Don't block forever if FastAPI is still loading up
+            print(f"[{self.chat_id}] process_query: {query!r}")
+
+            client = genai.Client(
+                api_key=os.getenv("GEMINI_API_KEY"),
+                http_options={"api_version": "v1alpha"}
             )
-            if not res.ok:
-                try:
-                    error_detail = res.json().get("detail", res.text)
-                except:
-                    error_detail = res.text
-                return f"FastAPI Error: {error_detail}"
-            
-            results = res.json()
-            
-            print(f"[{self.chat_id}] FastAPI returned {len(results) if results else 0} results.")
 
-            if not results:
-                return "This information is not available in the selected document."
+            config = types.GenerateContentConfig(
+                system_instruction=(
+                    "You are a helpful, friendly AI assistant. "
+                    "You have access to a tool called 'search_documents' that lets you search uploaded documents. "
+                    "When the user asks a specific factual question that might be in the documents, "
+                    "call the tool to retrieve relevant context, then answer based on that context. "
+                    "For greetings, casual chat, or general knowledge questions, respond naturally without using the tool."
+                ),
+                tools=[search_doc_tool],
+            )
 
-            context = "\n".join([item["text"] for item in results])
+            contents = [types.Content(role="user", parts=[types.Part(text=query)])]
 
-            prompt = f"""
-You MUST answer ONLY from the given context.
-DO NOT use any outside knowledge.
+            # ── Agentic loop: Gemini decides when to call the RAG tool ────────
+            MAX_ROUNDS = 3
+            for round_num in range(MAX_ROUNDS):
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=contents,
+                    config=config,
+                )
 
-If the answer is not clearly present in the context,
-reply EXACTLY with:
-"This information is not available in the selected document."
+                # Append model response to conversation
+                contents.append(response.candidates[0].content)
 
-Context:
-{context}
+                # Check for function calls
+                fn_calls = [
+                    part.function_call
+                    for part in response.candidates[0].content.parts
+                    if hasattr(part, "function_call") and part.function_call
+                ]
 
-Question:
-{query}
-"""
+                if not fn_calls:
+                    break  # No tool calls → final answer ready
 
-            # 🤖 Gemini
-            print(f"[{self.chat_id}] Calling Gemini API...")
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content(prompt)
-            print(f"[{self.chat_id}] Gemini responded successfully.")
+                # Execute each tool call
+                tool_response_parts = []
+                for fn_call in fn_calls:
+                    if fn_call.name == "search_documents":
+                        args = dict(fn_call.args)
+                        rag_query = args.get("query", query)
+                        doc_id = args.get("document_id", document_id) or document_id
 
-            answer = response.text.strip()
+                        print(f"[{self.chat_id}] 🔍 RAG tool called: query={rag_query!r}")
+                        rag_result = call_rag_search(rag_query, doc_id)
+                        print(f"[{self.chat_id}] 📄 RAG result: {len(rag_result)} chars")
 
-            if "not available" in answer.lower():
-                return "This information is not available in the selected document."
+                        tool_response_parts.append(
+                            types.Part.from_function_response(
+                                name="search_documents",
+                                response={"result": rag_result}
+                            )
+                        )
 
-            return answer
+                # Feed tool results back
+                contents.append(types.Content(role="tool", parts=tool_response_parts))
+
+            # Extract final text
+            answer = ""
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "text") and part.text:
+                    answer += part.text
+
+            answer = answer.strip()
+            print(f"[{self.chat_id}] ✅ Answer: {answer[:80]!r}")
+            return answer if answer else "I'm sorry, I couldn't generate a response."
 
         except Exception as e:
-            print(f"[{self.chat_id}] ERROR in process_query: {e}")
+            print(f"[{self.chat_id}] ERROR: {e}")
             traceback.print_exc()
-            return "Error: " + str(e)
+            return f"Error: {str(e)}"

@@ -1,13 +1,83 @@
-<h2>Edit Document</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edit Document – RAG Chatbot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#030712;--card:#0f172a;--border:#1e293b;--accent:#6366f1;--accent-glow:rgba(99,102,241,0.14);--text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;--radius:14px}
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
 
-<form method="POST">
-    {% csrf_token %}
-    <input type="text" name="title" value="{{ doc.title }}" required>
-    <br><br>
-    <textarea name="content" rows="10" cols="50">{{ doc.content }}</textarea>
-    <br><br>
-    <button type="submit">Update</button>
-</form>
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--border);background:rgba(3,7,18,0.8);backdrop-filter:blur(12px)}
+  .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+  .nav-icon{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .nav-title{font-size:16px;font-weight:700}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:8px 16px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;transition:all 0.18s}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--text)}
 
-<br>
-<a href="/documents/">Back</a>
+  .center{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:40px 24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:40px;width:100%;max-width:640px}
+  .card-title{font-size:22px;font-weight:700;margin-bottom:6px;letter-spacing:-0.3px}
+  .card-sub{font-size:14px;color:var(--text-muted);margin-bottom:28px}
+
+  .field{margin-bottom:20px}
+  .label{display:block;font-size:13px;font-weight:500;color:var(--text-dim);margin-bottom:8px}
+  .input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:11px 14px;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:border-color 0.2s,box-shadow 0.2s}
+  .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+  textarea.input{resize:vertical;min-height:280px;line-height:1.65;font-size:13px}
+
+  .char-count{font-size:11px;color:var(--text-muted);text-align:right;margin-top:4px}
+
+  .actions{display:flex;gap:10px;margin-top:4px}
+  .submit-btn{flex:1;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;border-radius:10px;padding:12px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:opacity 0.2s,transform 0.15s}
+  .submit-btn:hover{opacity:0.88;transform:translateY(-1px)}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-brand">
+    <div class="nav-icon">🤖</div>
+    <div class="nav-title">RAG Chatbot</div>
+  </a>
+  <a href="/documents/" class="btn-ghost">← Documents</a>
+</nav>
+
+<div class="center">
+  <div class="card">
+    <h1 class="card-title">✏️ Edit Document</h1>
+    <p class="card-sub">Update the document title or its extracted text content.</p>
+
+    <form method="POST">
+      {% csrf_token %}
+
+      <div class="field">
+        <label class="label" for="title">Document Name</label>
+        <input class="input" type="text" id="title" name="title" value="{{ doc.title }}" required>
+      </div>
+
+      <div class="field">
+        <label class="label" for="content">Extracted Content</label>
+        <textarea class="input" id="content" name="content">{{ doc.content }}</textarea>
+        <div class="char-count" id="charCount"></div>
+      </div>
+
+      <div class="actions">
+        <a href="/documents/" class="btn-ghost" style="display:flex;align-items:center;justify-content:center;text-align:center;">Cancel</a>
+        <button type="submit" class="submit-btn">💾 Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const ta = document.getElementById("content");
+const cc = document.getElementById("charCount");
+function updateCount() { cc.textContent = ta.value.length.toLocaleString() + " characters"; }
+ta.addEventListener("input", updateCount);
+updateCount();
+</script>
+</body>
+</html>

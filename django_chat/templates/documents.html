@@ -1,17 +1,101 @@
-<a href="/" style="display:inline-block; margin-bottom:10px;">
-    ← Back to Chatbot
-</a>
-<h2>Documents</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Documents – RAG Chatbot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#030712;--card:#0f172a;--border:#1e293b;--accent:#6366f1;--accent2:#8b5cf6;--accent-glow:rgba(99,102,241,0.14);--text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;--red:#f43f5e;--green:#10b981;--radius:14px}
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+  
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--border);background:rgba(3,7,18,0.8);backdrop-filter:blur(12px);position:sticky;top:0;z-index:10}
+  .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+  .nav-icon{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .nav-title{font-size:16px;font-weight:700}
+  .nav-actions{display:flex;align-items:center;gap:12px}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:8px 16px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;transition:all 0.18s}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--text)}
+  .btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:6px;transition:opacity 0.2s,transform 0.15s}
+  .btn-primary:hover{opacity:0.88;transform:translateY(-1px)}
 
-<a href="/upload/">Upload New</a>
+  .container{max-width:900px;margin:0 auto;padding:40px 24px}
+  .page-header{margin-bottom:32px}
+  .page-title{font-size:28px;font-weight:700;letter-spacing:-0.5px}
+  .page-sub{font-size:14px;color:var(--text-muted);margin-top:6px}
 
-<ul>
+  .empty-state{text-align:center;padding:80px 20px;color:var(--text-muted)}
+  .empty-icon{font-size:56px;margin-bottom:16px}
+  .empty-title{font-size:18px;font-weight:600;color:var(--text-dim);margin-bottom:8px}
+  .empty-sub{font-size:14px;margin-bottom:24px}
+
+  .doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+  .doc-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;transition:border-color 0.2s,transform 0.15s;position:relative}
+  .doc-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .doc-icon{font-size:32px;margin-bottom:12px}
+  .doc-name{font-size:15px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .doc-id{font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:16px}
+  .doc-actions{display:flex;gap:8px}
+  .btn-sm{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;text-decoration:none;transition:all 0.18s;border:1px solid var(--border);background:transparent;color:var(--text-dim)}
+  .btn-sm:hover{background:var(--accent-glow);border-color:var(--accent);color:var(--text)}
+  .btn-sm.danger:hover{background:rgba(244,63,94,0.12);border-color:var(--red);color:var(--red)}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-brand">
+    <div class="nav-icon">🤖</div>
+    <div class="nav-title">RAG Chatbot</div>
+  </a>
+  <div class="nav-actions">
+    <a href="/" class="btn-ghost">← Back to Chat</a>
+    <a href="/upload/" class="btn-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Upload Document
+    </a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="page-header">
+    <h1 class="page-title">📄 Your Documents</h1>
+    <p class="page-sub">Upload TXT, PDF, or DOCX files. The AI will use them as context when answering questions.</p>
+  </div>
+
+  {% if docs %}
+  <div class="doc-grid">
     {% for doc in docs %}
-        <li>
-            <b>{{ doc.title }}</b>
-
-            <a href="/edit/{{ doc.id }}/">Edit</a>
-            <a href="/delete/{{ doc.id }}/">Delete</a>
-        </li>
+    <div class="doc-card">
+      <div class="doc-icon">
+        {% if ".pdf" in doc.title|lower %}📕
+        {% elif ".docx" in doc.title|lower %}📘
+        {% else %}📄{% endif %}
+      </div>
+      <div class="doc-name">{{ doc.title }}</div>
+      <div class="doc-id">ID: {{ doc.pinecone_id|truncatechars:30 }}</div>
+      <div class="doc-actions">
+        <a href="/edit/{{ doc.id }}/" class="btn-sm">✏️ Edit</a>
+        <a href="/delete/{{ doc.id }}/"
+           onclick="return confirm('Delete \'{{ doc.title }}\'? This will also remove it from the AI knowledge base.')"
+           class="btn-sm danger">🗑️ Delete</a>
+      </div>
+    </div>
     {% endfor %}
-</ul>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📭</div>
+    <div class="empty-title">No documents yet</div>
+    <div class="empty-sub">Upload your first document to give the AI something to work with.</div>
+    <a href="/upload/" class="btn-primary" style="display:inline-flex;margin:0 auto;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Upload Now
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+</body>
+</html>

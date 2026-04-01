@@ -1,8 +1,6 @@
 from django.shortcuts import render, redirect
 from .models import Document, ChatHistory, ChatSession
 import requests
-from .pinecone_utils import delete_document_vectors
-
 
 from django.utils.timezone import localtime
 
@@ -63,9 +61,13 @@ def upload_page(request):
             print("FastAPI response:", res.text)
 
             if res.status_code == 200:
-                pinecone_id = res.json().get("document_id", "")
+                res_json = res.json()
+                pinecone_id = res_json.get("document_id", "")
+                fetched_text = res_json.get("text", "")
 
-                if file.name.endswith(".txt"):
+                if fetched_text:
+                    content = fetched_text
+                elif file.name.endswith(".txt"):
                     file.seek(0)
                     content = file.read().decode("utf-8")
 
@@ -95,7 +97,12 @@ def delete_document(request, id):
 
     try:
         if doc.pinecone_id:
-            delete_document_vectors(doc.pinecone_id)
+            import requests, os
+            fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
+            delete_api = fastapi_url.replace("/upload", "") + f"/delete/{doc.pinecone_id}"
+            res = requests.delete(delete_api, timeout=30)
+            if not res.ok:
+                print("Failed calling delete API on FastAPI:", res.text)
     except Exception as e:
         print("Pinecone delete error:", e)
 

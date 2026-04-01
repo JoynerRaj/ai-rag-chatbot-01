@@ -3,9 +3,7 @@ channels
 daphne
 requests
 python-dotenv
-google-generativeai
+google-genai
 dj-database-url
 psycopg2-binary
-pinecone
-sentence-transformers
 channels_redis
