@@ -293,60 +293,47 @@
   </div>
 </aside>
 
-<!-- MAIN -->
 <main class="main">
-  <!-- TOP BAR: Document selector -->
-  <div class="topbar">
-    <div class="doc-pills">
-      <span class="doc-pills-label">📄 Context:</span>
-      <label>
-        <input type="radio" name="document" value="" checked>
-        <span>All Documents</span>
-      </label>
-      {% for doc in documents %}
-      <label>
-        <input type="radio" name="document" value="{{ doc.pinecone_id }}">
-        <span>{{ doc.title }}</span>
-      </label>
-      {% endfor %}
-    </div>
-  </div>
-
   <!-- CHAT BOX -->
   <div id="chat" class="chat-box">
-    {% if not current_chat_id %}
-    <div class="welcome-state">
+    <div class="welcome-state" id="welcomeState">
       <div class="welcome-icon">✨</div>
-      <div class="welcome-title">Start a conversation</div>
-      <div class="welcome-sub">Create a new chat on the left, upload your documents, and ask anything!</div>
+      <div class="welcome-title">How can I help you today?</div>
+      <div class="welcome-sub">Upload your documents and ask anything — a new chat starts automatically when you send your first message.</div>
     </div>
-    {% endif %}
   </div>
 
   <!-- INPUT -->
   <div class="input-wrapper">
     <div class="input-box">
-      <input id="msg" placeholder="Ask me anything about your documents…" onkeydown="handleKey(event)" autocomplete="off">
+      <input id="msg" placeholder="Message RAG Chatbot…" onkeydown="handleKey(event)" autocomplete="off">
       <button class="send-btn" onclick="sendMessage()" title="Send">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
     </div>
-    <div class="input-hint">RAG is used as a tool — the AI decides when to search your documents.</div>
+    <div class="input-hint">AI searches your uploaded documents automatically when needed.</div>
   </div>
 </main>
 
 <script>
+const CSRF = '{{ csrf_token }}';
 let ws = null;
+let activeChatId = null;
 const chatBox = document.getElementById("chat");
 const params = new URLSearchParams(window.location.search);
 const chatId = params.get("chat_id");
 
 if (chatId) {
-  chatBox.innerHTML = "";  // clear welcome state
+  activeChatId = chatId;
+  document.getElementById("welcomeState")?.remove();
+  connectWebSocket(chatId);
+}
+
+function connectWebSocket(id) {
   const protocol = location.protocol === "https:" ? "wss://" : "ws://";
-  ws = new WebSocket(protocol + location.host + "/ws/chat/?chat_id=" + chatId);
+  ws = new WebSocket(protocol + location.host + "/ws/chat/?chat_id=" + id);
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -357,7 +344,7 @@ if (chatId) {
     }
     removeTyping();
     appendMessage(data.response, "bot", true);
-    updateSidebar(data.question);
+    updateSidebarPreview(data.question);
   };
 
   ws.onerror = () => {
@@ -365,8 +352,72 @@ if (chatId) {
     appendMessage("Connection error. Please refresh the page.", "bot", false);
   };
 
-  // Ping keep-alive
   setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({type:"ping"})); }, 25000);
+}
+
+async function sendMessage() {
+  const input = document.getElementById("msg");
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = "";
+
+  // ── Auto-create chat if none exists (ChatGPT style) ─────────────────────
+  if (!ws || ws.readyState !== 1) {
+    document.getElementById("welcomeState")?.remove();
+
+    // Create chat session via AJAX
+    const res = await fetch("/new-chat-ajax/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
+      body: JSON.stringify({ message: msg })
+    });
+    const data = await res.json();
+    activeChatId = data.chat_id;
+
+    // Update URL without reload
+    history.pushState({}, "", "/?chat_id=" + activeChatId);
+
+    // Add to sidebar top
+    addToSidebar(activeChatId, data.title);
+
+    // Connect WebSocket
+    connectWebSocket(activeChatId);
+
+    // Wait for WS to open then send
+    ws.onopen = () => {
+      appendMessage(msg, "user", true);
+      showTyping();
+      ws.send(JSON.stringify({ message: msg, document_id: "" }));
+    };
+    return;
+  }
+
+  appendMessage(msg, "user", true);
+  showTyping();
+  ws.send(JSON.stringify({ message: msg, document_id: "" }));
+}
+
+function addToSidebar(id, title) {
+  const list = document.querySelector(".chats-list");
+  // Remove empty state if present
+  const empty = list.querySelector("div[style]");
+  if (empty) empty.remove();
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "chat-wrapper";
+  wrapper.innerHTML = `
+    <a href="/?chat_id=${id}" class="chat-item active">
+      <div class="chat-title">${title}</div>
+      <div class="chat-meta">
+        <span class="chat-preview">Just now</span>
+        <span class="chat-time">${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+      </div>
+    </a>
+    <a href="/delete-chat/${id}/" onclick="return confirm('Delete this chat?')" class="delete-btn" title="Delete chat">✕</a>
+  `;
+  // Remove active from other items
+  document.querySelectorAll(".chat-item.active").forEach(el => el.classList.remove("active"));
+  list.prepend(wrapper);
 }
 
 function appendMessage(text, type, animate) {
@@ -392,15 +443,12 @@ function showTyping() {
   const row = document.createElement("div");
   row.className = "message-row bot";
   row.id = "typing-row";
-
   const avatar = document.createElement("div");
   avatar.className = "avatar bot";
   avatar.textContent = "🤖";
-
   const bubble = document.createElement("div");
   bubble.className = "bubble typing-bubble";
   bubble.innerHTML = "<span></span><span></span><span></span>";
-
   row.appendChild(avatar);
   row.appendChild(bubble);
   chatBox.appendChild(row);
@@ -412,29 +460,11 @@ function removeTyping() {
   if (el) el.remove();
 }
 
-function sendMessage() {
-  const input = document.getElementById("msg");
-  const msg = input.value.trim();
-  if (!msg) return;
-
-  if (!ws || ws.readyState !== 1) {
-    alert("Please start a new chat first (click + New Chat).");
-    return;
-  }
-
-  appendMessage(msg, "user", true);
-  showTyping();
-
-  const doc = document.querySelector('input[name="document"]:checked');
-  ws.send(JSON.stringify({ message: msg, document_id: doc ? doc.value : "" }));
-  input.value = "";
-}
-
 function handleKey(e) {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 }
 
-function updateSidebar(lastMsg) {
+function updateSidebarPreview(lastMsg) {
   const active = document.querySelector(".chat-item.active .chat-preview");
   const time   = document.querySelector(".chat-item.active .chat-time");
   if (active) active.innerText = lastMsg.substring(0, 40);

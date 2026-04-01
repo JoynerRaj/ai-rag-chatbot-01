@@ -9,5 +9,6 @@ urlpatterns = [
     path("edit/<int:id>/", views.edit_document, name="edit"),
     path("clear-history/", views.clear_history, name="clear_history"),
     path("new-chat/", views.create_chat, name="new_chat"),
+    path("new-chat-ajax/", views.create_chat_ajax, name="new_chat_ajax"),
     path("delete-chat/<int:chat_id>/", views.delete_chat, name="delete_chat"),
 ]

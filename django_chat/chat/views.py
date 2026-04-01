@@ -155,9 +155,24 @@ def clear_history(request):
 
 def create_chat(request):
     from .models import ChatSession
-
     chat = ChatSession.objects.create(title="New Chat")
     return redirect(f"/?chat_id={chat.id}")
+
+def create_chat_ajax(request):
+    """AJAX endpoint — creates a chat session titled from the first message."""
+    from django.http import JsonResponse
+    from .models import ChatSession
+    if request.method == "POST":
+        import json
+        try:
+            body = json.loads(request.body)
+            first_msg = body.get("message", "New Chat")
+        except Exception:
+            first_msg = "New Chat"
+        title = first_msg[:50] if first_msg else "New Chat"
+        chat = ChatSession.objects.create(title=title)
+        return JsonResponse({"chat_id": chat.id, "title": title})
+    return JsonResponse({"error": "POST required"}, status=405)
 
 def delete_chat(request, chat_id):
     from .models import ChatSession
