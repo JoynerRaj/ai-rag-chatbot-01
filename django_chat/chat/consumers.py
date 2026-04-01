@@ -142,14 +142,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 http_options={"api_version": "v1alpha"}
             )
 
-            config = types.GenerateContentConfig(
-                system_instruction=(
+            if document_id and str(document_id).strip():
+                system_instruction = (
+                    "You are a helpful AI assistant. The user has selected a SPECIFIC document to search. "
+                    "You MUST call the 'search_documents' tool for EVERY question to retrieve context from that document. "
+                    "Answer ONLY based on the retrieved document context. "
+                    "If the answer is not found in the document, say: 'This information is not available in the selected document.' "
+                    "Do NOT use your general knowledge — only use what the tool returns."
+                )
+            else:
+                system_instruction = (
                     "You are a helpful, friendly AI assistant. "
                     "You have access to a tool called 'search_documents' that lets you search uploaded documents. "
                     "When the user asks a specific factual question that might be in the documents, "
                     "call the tool to retrieve relevant context, then answer based on that context. "
                     "For greetings, casual chat, or general knowledge questions, respond naturally without using the tool."
-                ),
+                )
+
+            config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
                 tools=[search_doc_tool],
             )
 
