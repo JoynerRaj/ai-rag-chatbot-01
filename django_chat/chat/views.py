@@ -54,6 +54,20 @@ def upload_page(request):
                 file.seek(0)
                 content = file.read().decode("utf-8", errors="ignore")
                 file.seek(0)
+
+            elif filename.endswith(".pdf"):
+                import io
+                from pypdf import PdfReader
+                file.seek(0)
+                reader = PdfReader(io.BytesIO(file.read()))
+                pages_text = []
+                for page in reader.pages:
+                    text = page.extract_text()
+                    if text:
+                        pages_text.append(text)
+                content = "\n".join(pages_text)
+                file.seek(0)
+
             elif filename.endswith(".docx"):
                 import zipfile, io, re
                 file.seek(0)
@@ -63,6 +77,7 @@ def upload_page(request):
                         content = re.sub(r"<[^>]+>", " ", xml)
                         content = re.sub(r"\s+", " ", content).strip()
                 file.seek(0)
+
         except Exception as e:
             print("Django-side content extraction failed:", e)
 
