@@ -47,29 +47,41 @@ def upload_page(request):
         pinecone_id = ""
         content = ""
 
+        # ── Step 1: Extract content on Django side (reliable, no extra deps) ──
+        filename = file.name.lower()
+        try:
+            if filename.endswith(".txt"):
+                file.seek(0)
+                content = file.read().decode("utf-8", errors="ignore")
+                file.seek(0)
+            elif filename.endswith(".docx"):
+                import zipfile, io, re
+                file.seek(0)
+                with zipfile.ZipFile(io.BytesIO(file.read())) as z:
+                    if "word/document.xml" in z.namelist():
+                        xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+                        content = re.sub(r"<[^>]+>", " ", xml)
+                        content = re.sub(r"\s+", " ", content).strip()
+                file.seek(0)
+        except Exception as e:
+            print("Django-side content extraction failed:", e)
+
+        # ── Step 2: Send to FastAPI for Pinecone embedding ────────────────────
         import os
         fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
         try:
-            files = {"file": file}
-            res = requests.post(
-                fastapi_url,
-                files=files,
-                timeout=60
-            )
-
+            file.seek(0)
+            res = requests.post(fastapi_url, files={"file": file}, timeout=60)
             print("FastAPI status:", res.status_code)
-            print("FastAPI response:", res.text)
+            print("FastAPI response:", res.text[:300])
 
             if res.status_code == 200:
                 res_json = res.json()
                 pinecone_id = res_json.get("document_id", "")
-                fetched_text = res_json.get("text", "")
-
-                if fetched_text:
-                    content = fetched_text
-                elif file.name.endswith(".txt"):
-                    file.seek(0)
-                    content = file.read().decode("utf-8")
+                fastapi_text = res_json.get("text", "")
+                # Use FastAPI text for PDFs (FastAPI has pdfplumber; Django doesn't)
+                if not content and fastapi_text:
+                    content = fastapi_text
 
         except Exception as e:
             print("FastAPI upload failed:", e)
@@ -79,9 +91,7 @@ def upload_page(request):
             content=content,
             pinecone_id=pinecone_id
         )
-
-        print("Saved to Django DB, id:", doc.id, "pinecone_id:", doc.pinecone_id)
-
+        print("Saved to Django DB, id:", doc.id, "content length:", len(content))
         return redirect("documents")
 
     return render(request, "upload.html")
