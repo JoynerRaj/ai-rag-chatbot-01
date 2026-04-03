@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 from google import genai
 from google.genai import types
 from .models import ChatHistory, ChatSession
+from .redis_client import redis_client  # Cache-Aside layer
 
 load_dotenv()
 
@@ -137,6 +138,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             print(f"[{self.chat_id}] process_query: {query!r}")
 
+            # ── Cache-Aside: READ ────────────────────────────────────────────
+            normalized_query = query.lower().strip()
+            cache_key = f"chat:{normalized_query}:{document_id}"
+
+            if redis_client is not None:
+                try:
+                    cached = redis_client.get(cache_key)
+                    if cached:
+                        print(f"[{self.chat_id}] ✅ Cache HIT for key: {cache_key!r}")
+                        return cached
+                except Exception as redis_err:
+                    print(f"[{self.chat_id}] ⚠️  Redis read error (skipping cache): {redis_err}")
+            # ── End Cache READ ───────────────────────────────────────────────
+
             client = genai.Client(
                 api_key=os.getenv("GEMINI_API_KEY"),
                 http_options={"api_version": "v1alpha"}
@@ -218,6 +233,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             answer = answer.strip()
             print(f"[{self.chat_id}] ✅ Answer: {answer[:80]!r}")
+
+            # ── Cache-Aside: WRITE ───────────────────────────────────────────
+            if answer and redis_client is not None:
+                try:
+                    redis_client.set(cache_key, answer, ex=3600)  # TTL: 1 hour
+                    print(f"[{self.chat_id}] 💾 Stored in Redis: key={cache_key!r}")
+                except Exception as redis_err:
+                    print(f"[{self.chat_id}] ⚠️  Redis write error (skipping store): {redis_err}")
+            # ── End Cache WRITE ──────────────────────────────────────────────
+
             return answer if answer else "I'm sorry, I couldn't generate a response."
 
         except Exception as e:
