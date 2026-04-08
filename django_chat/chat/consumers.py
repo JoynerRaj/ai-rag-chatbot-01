@@ -1,6 +1,8 @@
 import json
 import os
 import requests
+import math
+import uuid
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
@@ -66,6 +68,24 @@ def call_rag_search(query: str, document_id: str = None) -> str:
         return f"Relevant document excerpts:\n{chunks}"
     except Exception as e:
         return f"[RAG search error: {str(e)}]"
+
+def get_query_embedding(query: str):
+    """Fetches embedding for a query using FastAPI."""
+    try:
+        fastapi_url = os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
+        embed_api = fastapi_url.replace("/upload", "") + "/embed"
+        res = requests.post(embed_api, json={"query": query}, timeout=30)
+        if res.ok:
+            return res.json().get("embedding")
+    except Exception as e:
+        print(f"[get_query_embedding] Error: {e}")
+    return None
+
+def cosine_similarity(v1, v2):
+    dot_product = sum(a*b for a,b in zip(v1, v2))
+    norm_v1 = math.sqrt(sum(a*a for a in v1))
+    norm_v2 = math.sqrt(sum(b*b for b in v2))
+    return dot_product / (norm_v1 * norm_v2) if norm_v1 and norm_v2 else 0.0
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -138,19 +158,42 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             print(f"[{self.chat_id}] process_query: {query!r}")
 
-            # ── Cache-Aside: READ ────────────────────────────────────────────
+            # ── Semantic Cache: READ ─────────────────────────────────────────
             normalized_query = query.lower().strip()
-            cache_key = f"chat:{normalized_query}:{document_id}"
-
+            doc_id_str = str(document_id) if document_id else "None"
+            query_emb = None
+            
             if redis_client is not None:
-                try:
-                    cached = redis_client.get(cache_key)
-                    if cached:
-                        print(f"[{self.chat_id}] ✅ Cache HIT for key: {cache_key!r}")
-                        return cached
-                except Exception as redis_err:
-                    print(f"[{self.chat_id}] ⚠️  Redis read error (skipping cache): {redis_err}")
-            # ── End Cache READ ───────────────────────────────────────────────
+                query_emb = get_query_embedding(normalized_query)
+                if query_emb:
+                    try:
+                        keys = redis_client.keys(f"chat:*:doc:{doc_id_str}")
+                        best_match = None
+                        highest_sim = 0.0
+                        
+                        for k in keys:
+                            cached_data_str = redis_client.get(k)
+                            if cached_data_str:
+                                try:
+                                    cached_data = json.loads(cached_data_str)
+                                    cached_emb = cached_data.get("embedding")
+                                    if cached_emb:
+                                        sim = cosine_similarity(query_emb, cached_emb)
+                                        if sim > highest_sim:
+                                            highest_sim = sim
+                                            best_match = cached_data.get("answer")
+                                except json.JSONDecodeError:
+                                    pass # old format
+                                    
+                        SIMILARITY_THRESHOLD = 0.90
+                        if best_match and highest_sim >= SIMILARITY_THRESHOLD:
+                            print(f"[{self.chat_id}] ✅ Semantic Cache HIT (sim: {highest_sim:.3f})")
+                            return best_match
+                        else:
+                            print(f"[{self.chat_id}] ❌ Semantic Cache MISS (highest sim: {highest_sim:.3f})")
+                    except Exception as redis_err:
+                        print(f"[{self.chat_id}] ⚠️  Redis read error (skipping cache): {redis_err}")
+            # ── End Semantic Cache READ ──────────────────────────────────────
 
             client = genai.Client(
                 api_key=os.getenv("GEMINI_API_KEY"),
@@ -234,14 +277,22 @@ class ChatConsumer(AsyncWebsocketConsumer):
             answer = answer.strip()
             print(f"[{self.chat_id}] ✅ Answer: {answer[:80]!r}")
 
-            # ── Cache-Aside: WRITE ───────────────────────────────────────────
-            if answer and redis_client is not None:
+            # ── Semantic Cache: WRITE ────────────────────────────────────────
+            if answer and redis_client is not None and query_emb is not None:
                 try:
-                    redis_client.set(cache_key, answer, ex=3600)  # TTL: 1 hour
-                    print(f"[{self.chat_id}] 💾 Stored in Redis: key={cache_key!r}")
+                    unique_id = str(uuid.uuid4())[:8]
+                    cache_key = f"chat:{unique_id}:doc:{doc_id_str}"
+                    
+                    cache_payload = {
+                        "query": normalized_query,
+                        "answer": answer,
+                        "embedding": query_emb
+                    }
+                    redis_client.set(cache_key, json.dumps(cache_payload), ex=3600)  # TTL: 1 hour
+                    print(f"[{self.chat_id}] 💾 Semantic Stored in Redis: key={cache_key!r}")
                 except Exception as redis_err:
                     print(f"[{self.chat_id}] ⚠️  Redis write error (skipping store): {redis_err}")
-            # ── End Cache WRITE ──────────────────────────────────────────────
+            # ── End Semantic Cache WRITE ─────────────────────────────────────
 
             return answer if answer else "I'm sorry, I couldn't generate a response."
 

@@ -194,8 +194,16 @@ def cache_page(request):
                 val = redis_client.get(k)
                 ttl = redis_client.ttl(k)
                 
-                # Try to abbreviate long answers for the preview
-                val_preview = val if val and len(val) < 200 else val[:200] + "..."
+                try:
+                    import json
+                    val_json = json.loads(val)
+                    query = val_json.get("query", "")
+                    ans = val_json.get("answer", "")
+                    ans_preview = ans if ans and len(ans) < 200 else ans[:200] + "..."
+                    val_preview = f"Query: {query}\n\nAnswer: {ans_preview}"
+                except:
+                    # Fallback for old exact-match or raw formats
+                    val_preview = val if val and len(val) < 200 else val[:200] + "..."
                 
                 cache_entries.append({
                     "key": k,
