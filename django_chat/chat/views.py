@@ -181,3 +181,42 @@ def delete_chat(request, chat_id):
     chat.delete()
 
     return redirect("/")
+
+def cache_page(request):
+    from .redis_client import redis_client
+    
+    cache_entries = []
+    if redis_client is not None:
+        try:
+            # Fetch all keys matching chat:*
+            keys = redis_client.keys("chat:*")
+            for k in keys:
+                val = redis_client.get(k)
+                ttl = redis_client.ttl(k)
+                
+                # Try to abbreviate long answers for the preview
+                val_preview = val if val and len(val) < 200 else val[:200] + "..."
+                
+                cache_entries.append({
+                    "key": k,
+                    "value": val_preview,
+                    "ttl": ttl if ttl > 0 else "Expired"
+                })
+        except Exception as e:
+            print("Redis read error on cache page:", e)
+            
+    return render(request, "cache.html", {
+        "cache_entries": cache_entries,
+        "redis_available": redis_client is not None
+    })
+
+def clear_cache(request):
+    from .redis_client import redis_client
+    if redis_client is not None:
+        try:
+            keys = redis_client.keys("chat:*")
+            if keys:
+                redis_client.delete(*keys)
+        except Exception as e:
+            print("Redis delete error:", e)
+    return redirect("cache")

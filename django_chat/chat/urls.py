@@ -11,4 +11,6 @@ urlpatterns = [
     path("new-chat/", views.create_chat, name="new_chat"),
     path("new-chat-ajax/", views.create_chat_ajax, name="new_chat_ajax"),
     path("delete-chat/<int:chat_id>/", views.delete_chat, name="delete_chat"),
+    path("cache/", views.cache_page, name="cache"),
+    path("cache/clear/", views.clear_cache, name="clear_cache"),
 ]
