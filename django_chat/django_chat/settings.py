@@ -30,8 +30,6 @@ INSTALLED_APPS = [
     # django-allauth
     'allauth',
     'allauth.account',
-    'allauth.socialaccount',
-    'allauth.socialaccount.providers.google',
 
     "channels",
     "chat",
@@ -178,16 +176,4 @@ ACCOUNT_EMAIL_VERIFICATION    = 'none'   # set to 'mandatory' in production
 # Use our custom templates
 ACCOUNT_SIGNUP_TEMPLATE   = 'account/signup.html'
 ACCOUNT_LOGIN_TEMPLATE    = 'account/login.html'
-
-# Google OAuth credentials (set via env vars; configure in Google Cloud Console)
-SOCIALACCOUNT_PROVIDERS = {
-    'google': {
-        'SCOPE': ['profile', 'email'],
-        'AUTH_PARAMS': {'access_type': 'online'},
-        'APP': {
-            'client_id':     os.getenv('GOOGLE_CLIENT_ID', ''),
-            'secret':        os.getenv('GOOGLE_CLIENT_SECRET', ''),
-            'key':           '',
-        }
-    }
-}
+
