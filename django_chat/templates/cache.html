@@ -7,9 +7,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  :root{--bg:#030712;--card:#0f172a;--border:#1e293b;--accent:#6366f1;--accent2:#8b5cf6;--accent-glow:rgba(99,102,241,0.14);--text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;--red:#f43f5e;--green:#10b981;--radius:14px}
+  :root{--bg:#030712;--card:#0f172a;--border:#1e293b;--accent:#6366f1;--accent2:#8b5cf6;--accent-glow:rgba(99,102,241,0.14);--text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;--red:#f43f5e;--green:#10b981;--yellow:#f59e0b;--radius:14px}
   body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-  
+
+  /* ── NAV ── */
   .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--border);background:rgba(3,7,18,0.8);backdrop-filter:blur(12px);position:sticky;top:0;z-index:10}
   .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
   .nav-icon{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px}
@@ -17,36 +18,57 @@
   .nav-actions{display:flex;align-items:center;gap:12px}
   .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:8px 16px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;transition:all 0.18s}
   .btn-ghost:hover{border-color:var(--accent);color:var(--text)}
-  .btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:6px;transition:opacity 0.2s,transform 0.15s}
-  .btn-primary:hover{opacity:0.88;transform:translateY(-1px)}
-  .btn-danger{background:transparent;border:1px solid var(--border);color:var(--red);padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:flex;align-items:center;gap:6px;transition:all 0.18s}
+  .btn-danger{background:transparent;border:1px solid rgba(244,63,94,0.4);color:var(--red);padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:all 0.18s}
   .btn-danger:hover{background:rgba(244,63,94,0.12);border-color:var(--red)}
 
-  .container{max-width:900px;margin:0 auto;padding:40px 24px}
-  .page-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px}
-  .page-title{font-size:28px;font-weight:700;letter-spacing:-0.5px}
-  .page-sub{font-size:14px;color:var(--text-muted);margin-top:6px}
-  .status-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-top:10px}
-  .status-online{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3)}
-  .status-offline{background:rgba(244,63,94,0.15);color:var(--red);border:1px solid rgba(244,63,94,0.3)}
-  .status-dot{width:8px;height:8px;border-radius:50%}
-  .dot-green{background:var(--green);box-shadow:0 0 8px var(--green)}
-  .dot-red{background:var(--red);box-shadow:0 0 8px var(--red)}
+  /* ── LAYOUT ── */
+  .container{max-width:960px;margin:0 auto;padding:40px 24px}
 
+  /* ── HEADER ── */
+  .page-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:36px;gap:16px}
+  .page-title{font-size:28px;font-weight:700;letter-spacing:-0.5px}
+  .page-sub{font-size:14px;color:var(--text-muted);margin-top:6px;line-height:1.5}
+  .header-left{flex:1}
+
+  /* ── STATS ROW ── */
+  .stats-row{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
+  .stat-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600}
+  .chip-online{background:rgba(16,185,129,0.12);color:var(--green);border:1px solid rgba(16,185,129,0.25)}
+  .chip-offline{background:rgba(244,63,94,0.12);color:var(--red);border:1px solid rgba(244,63,94,0.25)}
+  .chip-count{background:rgba(99,102,241,0.12);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)}
+  .dot{width:7px;height:7px;border-radius:50%}
+  .dot-green{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .dot-red{background:var(--red);box-shadow:0 0 6px var(--red)}
+
+  /* ── CACHE CARDS ── */
+  .cache-list{display:flex;flex-direction:column;gap:14px}
+
+  .cache-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color 0.2s,transform 0.15s}
+  .cache-card:hover{border-color:rgba(99,102,241,0.35);transform:translateY(-1px)}
+
+  .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 20px 12px}
+  .card-query{font-size:14px;font-weight:600;color:var(--text);line-height:1.4}
+  .card-query::before{content:"Q:";margin-right:6px;color:var(--accent);font-weight:700}
+  .card-meta{display:flex;align-items:center;gap:8px;flex-shrink:0}
+
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap}
+  .badge-ttl{background:rgba(245,158,11,0.12);color:var(--yellow);border:1px solid rgba(245,158,11,0.25)}
+  .badge-doc{background:rgba(99,102,241,0.12);color:#a5b4fc;border:1px solid rgba(99,102,241,0.2);font-family:monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis}
+
+  .card-divider{border:none;border-top:1px solid var(--border);margin:0 20px}
+
+  .card-answer{padding:14px 20px;font-size:13px;color:var(--text-dim);line-height:1.7;white-space:pre-wrap;word-wrap:break-word}
+  .answer-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:6px}
+
+  .card-key{padding:8px 20px 12px;font-family:monospace;font-size:10px;color:var(--text-muted)}
+
+  /* ── EMPTY STATE ── */
   .empty-state{text-align:center;padding:80px 20px;color:var(--text-muted)}
   .empty-icon{font-size:56px;margin-bottom:16px}
   .empty-title{font-size:18px;font-weight:600;color:var(--text-dim);margin-bottom:8px}
-  .empty-sub{font-size:14px;margin-bottom:24px}
-
-  .cache-grid{display:flex;flex-direction:column;gap:16px}
-  .cache-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;transition:border-color 0.2s}
-  .cache-card:hover{border-color:var(--border)}
-  
-  .cache-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-  .cache-key{font-family:monospace;font-size:14px;color:var(--accent);font-weight:600;word-break:break-all}
-  .cache-ttl{font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:6px}
-  
-  .cache-value{font-size:13px;line-height:1.6;color:var(--text-dim);background:rgba(0,0,0,0.3);padding:14px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;font-family:monospace}
+  .empty-sub{font-size:14px;margin-bottom:24px;max-width:360px;margin-left:auto;margin-right:auto}
+  .btn-primary{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;padding:10px 20px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:opacity 0.2s,transform 0.15s}
+  .btn-primary:hover{opacity:0.88;transform:translateY(-1px)}
 </style>
 </head>
 <body>
@@ -58,29 +80,31 @@
   </a>
   <div class="nav-actions">
     <a href="/" class="btn-ghost">← Back to Chat</a>
-    <a href="/documents/" class="btn-ghost">Documents</a>
+    <a href="/documents/" class="btn-ghost">📄 Documents</a>
   </div>
 </nav>
 
 <div class="container">
   <div class="page-header">
-    <div>
-      <h1 class="page-title">🧠 Redis Cache Dashboard</h1>
-      <p class="page-sub">View recent LLM responses cached in Redis to save Gemini and Pinecone calls.</p>
-      
-      {% if redis_available %}
-        <div class="status-badge status-online">
-          <div class="status-dot dot-green"></div> Redis Connected
-        </div>
-      {% else %}
-        <div class="status-badge status-offline">
-          <div class="status-dot dot-red"></div> Redis Disconnected
-        </div>
-      {% endif %}
+    <div class="header-left">
+      <h1 class="page-title">🧠 Semantic Cache Dashboard</h1>
+      <p class="page-sub">Cached LLM responses matched by semantic similarity — similar questions reuse the same answer, saving Gemini &amp; Pinecone calls.</p>
+      <div class="stats-row">
+        {% if redis_available %}
+          <span class="stat-chip chip-online"><span class="dot dot-green"></span> Redis Connected</span>
+        {% else %}
+          <span class="stat-chip chip-offline"><span class="dot dot-red"></span> Redis Disconnected</span>
+        {% endif %}
+        {% if cache_entries %}
+          <span class="stat-chip chip-count">📦 {{ cache_entries|length }} entr{{ cache_entries|length|pluralize:"y,ies" }} cached</span>
+        {% endif %}
+      </div>
     </div>
-    
+
     {% if cache_entries %}
-    <a href="/cache/clear/" onclick="return confirm('Are you sure you want to flush all cached responses?')" class="btn-danger">
+    <a href="/cache/clear/"
+       onclick="return confirm('Flush all {{ cache_entries|length }} cached entries?')"
+       class="btn-danger" style="margin-top:6px">
       ⚡ Flush Cache
     </a>
     {% endif %}
@@ -89,27 +113,38 @@
   {% if not redis_available %}
   <div class="empty-state">
     <div class="empty-icon">⚠️</div>
-    <div class="empty-title">Cache is Disabled</div>
-    <div class="empty-sub">Could not connect to Redis. Please check your REDIS_URL or background service.</div>
+    <div class="empty-title">Redis Unavailable</div>
+    <div class="empty-sub">Could not connect to Redis. Check your REDIS_URL environment variable or your Redis container.</div>
   </div>
+
   {% elif cache_entries %}
-  <div class="cache-grid">
+  <div class="cache-list">
     {% for entry in cache_entries %}
     <div class="cache-card">
-      <div class="cache-header">
-        <div class="cache-key">{{ entry.key }}</div>
-        <div class="cache-ttl">⏱️ {{ entry.ttl }}s</div>
+      <div class="card-top">
+        <div class="card-query">{{ entry.query }}</div>
+        <div class="card-meta">
+          <span class="badge badge-ttl">⏱ {{ entry.ttl }}s</span>
+          <span class="badge badge-doc" title="{{ entry.doc_id }}">📄 {{ entry.doc_id|truncatechars:30 }}</span>
+        </div>
       </div>
-      <div class="cache-value">{{ entry.value }}</div>
+      <hr class="card-divider">
+      <div class="card-answer">
+        <div class="answer-label">Cached Answer</div>
+        {{ entry.value }}
+      </div>
+      <div class="card-key">key: {{ entry.key }}</div>
     </div>
     {% endfor %}
   </div>
+
   {% else %}
   <div class="empty-state">
     <div class="empty-icon">📭</div>
     <div class="empty-title">Cache is empty</div>
-    <div class="empty-sub">Send some messages in the chat to populate the Cache-Aside layer.</div>
-    <a href="/" class="btn-primary" style="display:inline-flex;margin:0 auto;">
+    <div class="empty-sub">Ask questions in the chat — responses are embedded and cached automatically. Similar future questions will hit the cache instead of calling Gemini.</div>
+    <a href="/" class="btn-primary">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
       Start Chatting
     </a>
   </div>

@@ -181,17 +181,6 @@ def search_pinecone(req: SearchQuery):
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/embed")
-def generate_embedding(req: SearchQuery):
-    try:
-        query_embedding = embed(req.query)
-        return {"embedding": query_embedding}
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.delete("/delete/{document_id}")
 def delete_document(document_id: str):
     try:

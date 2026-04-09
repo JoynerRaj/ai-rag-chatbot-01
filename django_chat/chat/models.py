@@ -1,7 +1,9 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 
 class Document(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     title = models.CharField(max_length=255)
     content = models.TextField()
     pinecone_id = models.CharField(max_length=100, blank=True, null=True)
@@ -12,6 +14,7 @@ class Document(models.Model):
 
 
 class ChatSession(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     title = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -23,4 +26,4 @@ class ChatHistory(models.Model):
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE)
     question = models.TextField()
     answer = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)

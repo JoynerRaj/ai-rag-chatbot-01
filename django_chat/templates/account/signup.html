@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create Account – RAG Chatbot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#030712;--card:#0f172a;--border:#1e293b;--accent:#6366f1;--accent2:#8b5cf6;--accent-glow:rgba(99,102,241,0.15);--text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;--red:#f43f5e;--radius:14px}
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  body::before{content:'';position:fixed;top:-200px;left:50%;transform:translateX(-50%);width:700px;height:500px;background:radial-gradient(ellipse,rgba(99,102,241,0.18) 0%,transparent 70%);pointer-events:none}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:24px;padding:44px 40px;width:100%;max-width:420px;position:relative}
+
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:32px}
+  .brand-icon{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:20px}
+  .brand-name{font-size:18px;font-weight:700}
+
+  h1{font-size:24px;font-weight:700;letter-spacing:-0.5px;margin-bottom:6px}
+  .sub{font-size:14px;color:var(--text-muted);margin-bottom:28px}
+
+  .field{margin-bottom:16px}
+  .label{display:block;font-size:13px;font-weight:500;color:var(--text-dim);margin-bottom:7px}
+  .input{width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:9px;padding:11px 14px;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:border-color 0.2s,box-shadow 0.2s}
+  .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+  .input::placeholder{color:var(--text-muted)}
+
+  .strength-bar{height:3px;border-radius:3px;margin-top:6px;background:var(--border);overflow:hidden}
+  .strength-fill{height:100%;width:0%;transition:width 0.3s,background 0.3s;border-radius:3px}
+
+  .submit-btn{width:100%;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;border:none;border-radius:10px;padding:12px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:opacity 0.2s,transform 0.15s;margin-top:4px}
+  .submit-btn:hover{opacity:0.88;transform:translateY(-1px)}
+
+  .footer-link{text-align:center;font-size:13px;color:var(--text-muted);margin-top:20px}
+  .footer-link a{color:#a5b4fc;text-decoration:none;font-weight:500}
+  .footer-link a:hover{text-decoration:underline}
+
+  .errors{background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);border-radius:9px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#fda4af}
+  .errors ul{padding-left:16px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="brand-icon">🤖</div>
+    <div class="brand-name">RAG Chatbot</div>
+  </div>
+
+  <h1>Create account</h1>
+  <p class="sub">Start chatting with your documents today</p>
+
+  {% if form.errors %}
+  <div class="errors">
+    <ul>
+      {% for field in form %}{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}{% endfor %}
+      {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{% url 'account_signup' %}">
+    {% csrf_token %}
+
+    <div class="field">
+      <label class="label" for="id_email">Email address</label>
+      <input class="input" type="email" id="id_email" name="email" placeholder="you@example.com" autocomplete="email" required>
+    </div>
+
+    <div class="field">
+      <label class="label" for="id_password1">Password</label>
+      <input class="input" type="password" id="id_password1" name="password1" placeholder="••••••••" autocomplete="new-password" required oninput="updateStrength(this.value)">
+      <div class="strength-bar"><div class="strength-fill" id="strengthFill"></div></div>
+    </div>
+
+    <div class="field">
+      <label class="label" for="id_password2">Confirm Password</label>
+      <input class="input" type="password" id="id_password2" name="password2" placeholder="••••••••" autocomplete="new-password" required>
+    </div>
+
+    <button type="submit" class="submit-btn">Create Account →</button>
+  </form>
+
+  <p class="footer-link">Already have an account? <a href="{% url 'account_login' %}">Sign in</a></p>
+</div>
+
+<script>
+function updateStrength(val) {
+  const fill = document.getElementById('strengthFill');
+  let score = 0;
+  if (val.length >= 8) score++;
+  if (/[A-Z]/.test(val)) score++;
+  if (/[0-9]/.test(val)) score++;
+  if (/[^A-Za-z0-9]/.test(val)) score++;
+  const colors = ['#f43f5e','#f59e0b','#10b981','#6366f1'];
+  const widths = ['25%','50%','75%','100%'];
+  fill.style.width  = score ? widths[score-1] : '0%';
+  fill.style.background = score ? colors[score-1] : 'transparent';
+}
+</script>
+</body>
+</html>

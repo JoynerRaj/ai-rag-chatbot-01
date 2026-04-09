@@ -25,6 +25,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',
+
+    # django-allauth
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
 
     "channels",
     "chat",
@@ -60,13 +67,11 @@ else:
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -149,3 +154,40 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # DEFAULT FIELD
 # ========================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ========================
+# AUTHENTICATION (allauth)
+# ========================
+SITE_ID = 1
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
+
+# Redirect after login/logout
+LOGIN_URL          = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/'
+LOGOUT_REDIRECT_URL = '/accounts/login/'
+
+# allauth account settings
+ACCOUNT_SIGNUP_FIELDS         = ['email*', 'password1*', 'password2*']  # * = required
+ACCOUNT_LOGIN_METHODS         = {'email'}    # login with email address (password always implied)
+ACCOUNT_EMAIL_VERIFICATION    = 'none'   # set to 'mandatory' in production
+
+# Use our custom templates
+ACCOUNT_SIGNUP_TEMPLATE   = 'account/signup.html'
+ACCOUNT_LOGIN_TEMPLATE    = 'account/login.html'
+
+# Google OAuth credentials (set via env vars; configure in Google Cloud Console)
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': ['profile', 'email'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+        'APP': {
+            'client_id':     os.getenv('GOOGLE_CLIENT_ID', ''),
+            'secret':        os.getenv('GOOGLE_CLIENT_SECRET', ''),
+            'key':           '',
+        }
+    }
+}

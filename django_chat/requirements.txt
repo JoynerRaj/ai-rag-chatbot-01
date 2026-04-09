@@ -7,4 +7,6 @@ google-genai
 dj-database-url
 psycopg2-binary
 channels_redis
-pypdf
+pypdf
+sentence-transformers
+django-allauth

@@ -1,15 +1,13 @@
 import json
 import os
 import requests
-import math
-import uuid
 from dotenv import load_dotenv
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 from google import genai
 from google.genai import types
 from .models import ChatHistory, ChatSession
-from .redis_client import redis_client  # Cache-Aside layer
+from .semantic_cache import semantic_cache_get, semantic_cache_set  # Semantic Cache-Aside
 
 load_dotenv()
 
@@ -69,30 +67,15 @@ def call_rag_search(query: str, document_id: str = None) -> str:
     except Exception as e:
         return f"[RAG search error: {str(e)}]"
 
-def get_query_embedding(query: str):
-    """Fetches embedding for a query using FastAPI."""
-    try:
-        fastapi_url = os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
-        embed_api = fastapi_url.replace("/upload", "") + "/embed"
-        res = requests.post(embed_api, json={"query": query}, timeout=30)
-        if res.ok:
-            return res.json().get("embedding")
-    except Exception as e:
-        print(f"[get_query_embedding] Error: {e}")
-    return None
-
-def cosine_similarity(v1, v2):
-    dot_product = sum(a*b for a,b in zip(v1, v2))
-    norm_v1 = math.sqrt(sum(a*a for a in v1))
-    norm_v2 = math.sqrt(sum(b*b for b in v2))
-    return dot_product / (norm_v1 * norm_v2) if norm_v1 and norm_v2 else 0.0
-
 
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         print("✅ WebSocket CONNECTED")
         await self.accept()
+
+        # Store authenticated user from Django Channels scope
+        self.user = self.scope.get("user", None)
 
         query_string = self.scope["query_string"].decode()
         chat_id = None
@@ -158,41 +141,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             print(f"[{self.chat_id}] process_query: {query!r}")
 
+            # ── Guard: No documents uploaded yet for THIS user ────────────────
+            from .models import Document
+            user = getattr(self, 'user', None)
+            if user and user.is_authenticated:
+                has_docs = Document.objects.filter(user=user).exists()
+            else:
+                has_docs = Document.objects.exists()  # fallback
+            if not has_docs:
+                return (
+                    "📚 No documents uploaded yet.\n\n"
+                    "Please go to **Documents → Upload** and add a document first. "
+                    "I can only answer questions based on your uploaded knowledge base."
+                )
+            # ── End Guard ─────────────────────────────────────────────────
+
             # ── Semantic Cache: READ ─────────────────────────────────────────
-            normalized_query = query.lower().strip()
-            doc_id_str = str(document_id) if document_id else "None"
-            query_emb = None
-            
-            if redis_client is not None:
-                query_emb = get_query_embedding(normalized_query)
-                if query_emb:
-                    try:
-                        keys = redis_client.keys(f"chat:*:doc:{doc_id_str}")
-                        best_match = None
-                        highest_sim = 0.0
-                        
-                        for k in keys:
-                            cached_data_str = redis_client.get(k)
-                            if cached_data_str:
-                                try:
-                                    cached_data = json.loads(cached_data_str)
-                                    cached_emb = cached_data.get("embedding")
-                                    if cached_emb:
-                                        sim = cosine_similarity(query_emb, cached_emb)
-                                        if sim > highest_sim:
-                                            highest_sim = sim
-                                            best_match = cached_data.get("answer")
-                                except json.JSONDecodeError:
-                                    pass # old format
-                                    
-                        SIMILARITY_THRESHOLD = 0.90
-                        if best_match and highest_sim >= SIMILARITY_THRESHOLD:
-                            print(f"[{self.chat_id}] ✅ Semantic Cache HIT (sim: {highest_sim:.3f})")
-                            return best_match
-                        else:
-                            print(f"[{self.chat_id}] ❌ Semantic Cache MISS (highest sim: {highest_sim:.3f})")
-                    except Exception as redis_err:
-                        print(f"[{self.chat_id}] ⚠️  Redis read error (skipping cache): {redis_err}")
+            cached = semantic_cache_get(query, document_id)
+            if cached:
+                print(f"[{self.chat_id}] ✅ Semantic Cache HIT")
+                return cached
             # ── End Semantic Cache READ ──────────────────────────────────────
 
             client = genai.Client(
@@ -210,11 +178,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 )
             else:
                 system_instruction = (
-                    "You are a helpful, friendly AI assistant. "
-                    "You have access to a tool called 'search_documents' that lets you search uploaded documents. "
-                    "When the user asks a specific factual question that might be in the documents, "
-                    "call the tool to retrieve relevant context, then answer based on that context. "
-                    "For greetings, casual chat, or general knowledge questions, respond naturally without using the tool."
+                    "You are a helpful AI assistant with access to an uploaded knowledge base. "
+                    "You MUST call the 'search_documents' tool for EVERY question to search the uploaded documents. "
+                    "Answer ONLY based on what the tool returns from the uploaded documents. "
+                    "Do NOT use your general knowledge or training data under any circumstances. "
+                    "If the documents do not contain the answer, say: "
+                    "'I could not find this information in the uploaded documents. Please try uploading a relevant document.'"
                 )
 
             config = types.GenerateContentConfig(
@@ -278,20 +247,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             print(f"[{self.chat_id}] ✅ Answer: {answer[:80]!r}")
 
             # ── Semantic Cache: WRITE ────────────────────────────────────────
-            if answer and redis_client is not None and query_emb is not None:
-                try:
-                    unique_id = str(uuid.uuid4())[:8]
-                    cache_key = f"chat:{unique_id}:doc:{doc_id_str}"
-                    
-                    cache_payload = {
-                        "query": normalized_query,
-                        "answer": answer,
-                        "embedding": query_emb
-                    }
-                    redis_client.set(cache_key, json.dumps(cache_payload), ex=3600)  # TTL: 1 hour
-                    print(f"[{self.chat_id}] 💾 Semantic Stored in Redis: key={cache_key!r}")
-                except Exception as redis_err:
-                    print(f"[{self.chat_id}] ⚠️  Redis write error (skipping store): {redis_err}")
+            semantic_cache_set(query, answer, document_id)
             # ── End Semantic Cache WRITE ─────────────────────────────────────
 
             return answer if answer else "I'm sorry, I couldn't generate a response."
