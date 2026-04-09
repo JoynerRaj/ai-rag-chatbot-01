@@ -2,8 +2,12 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from .models import Document, ChatHistory, ChatSession
 import requests
+from django.http import HttpResponse
 
 from django.utils.timezone import localtime
+
+def health_check(request):
+    return HttpResponse("OK")
 
 @login_required
 def chat_page(request):
