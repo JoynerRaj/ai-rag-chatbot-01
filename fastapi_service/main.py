@@ -192,5 +192,17 @@ def delete_document(document_id: str):
     except Exception as e:
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class EmbedQuery(BaseModel):
+    text: str
+
+@app.post("/embed")
+def get_embedding(req: EmbedQuery):
+    try:
+        return {"embedding": embed(req.text)}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=str(e))

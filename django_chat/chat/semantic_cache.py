@@ -30,29 +30,26 @@ SIMILARITY_THRESHOLD = 0.70   # Queries scoring >= 0.70 are treated as same ques
 EMB_KEY_PREFIX       = "chat:emb:"
 EMB_TTL              = 3600   # 1 hour (seconds)
 
-# ── SentenceTransformer singleton ─────────────────────────────────────────────
-# Loaded once at first use — same model as FastAPI/Pinecone (dim=384)
-_st_model = None
+# ── Remote Embedding ────────────────────────────────────────────────────────────
+# We call FastAPI to get embeddings instead of loading SentenceTransformer here
+# to save memory (Django free tier limits).
 
-def _get_st_model():
-    global _st_model
-    if _st_model is None:
-        from sentence_transformers import SentenceTransformer
-        print("[SemanticCache] 🔄 Loading SentenceTransformer (all-MiniLM-L6-v2)...")
-        _st_model = SentenceTransformer("all-MiniLM-L6-v2")
-        print("[SemanticCache] ✅ Model ready")
-    return _st_model
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 def _get_embedding(text: str) -> list:
-    """Embed text using SentenceTransformer all-MiniLM-L6-v2 (dim=384)."""
+    """Embed text by calling FastAPI /embed (dim=384)."""
     try:
-        model = _get_st_model()
-        emb = model.encode(text)
-        return emb.tolist()
+        import requests
+        # Get FastAPI URL, same as from views
+        fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
+        embed_api = fastapi_url.replace("/upload", "") + "/embed"
+
+        res = requests.post(embed_api, json={"text": text}, timeout=15)
+        if res.ok:
+            return res.json().get("embedding")
+        else:
+            print(f"[SemanticCache] ⚠️ FastAPI /embed returned {res.status_code}")
+            return None
     except Exception as e:
-        print(f"[SemanticCache] ⚠️  Embedding error: {e}")
+        print(f"[SemanticCache] ⚠️ Remote Embedding error: {e}")
         return None
 
 
