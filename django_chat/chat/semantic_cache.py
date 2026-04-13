@@ -1,22 +1,12 @@
-"""
-semantic_cache.py
------------------
-Semantic Cache using SentenceTransformer embeddings + cosine similarity on Redis.
-
-How it works:
-  WRITE: After Gemini responds using actual document search, embed the query and store:
-      redis key -> chat:emb:{user_id}:{uuid}
-      fields    -> query, answer, document_id, user_id, embedding (JSON list)
-
-  READ: On a new query, embed it and scan only THIS user's stored embeddings.
-        If cosine similarity >= THRESHOLD -> return cached answer.
-        Otherwise -> call Gemini as normal.
-
-Important:
-  - Cache is per-user. One user never sees another user's cached data.
-  - We only cache answers that came from actual document search (not casual chat).
-  - Invalidation removes only the affected user's entries for a given document.
-"""
+# semantic cache - stores question/answer pairs in redis so we don't hit gemini
+# for the same question twice. uses embeddings + cosine similarity so even slightly
+# rephrased questions can still get a cache hit instead of calling the api again.
+#
+# keys look like:  chat:emb:{user_id}:{uuid}
+# each entry has:  query, answer, document_id, user_id, embedding
+#
+# cache is scoped per user - user A never sees user B's cached responses
+# only answers that came from actual document search get cached (not greetings etc.)
 
 import json
 import math
@@ -25,18 +15,18 @@ import os
 
 from .redis_client import redis_client
 
-# how similar does a query have to be before we treat it as the same question?
+# anything above 0.70 similarity we treat as the same question
 SIMILARITY_THRESHOLD = 0.70
 
-# key prefix includes the user_id slot so each user gets their own namespace
+# user_id goes in the key so no two users share the same cache space
 EMB_KEY_PREFIX = "chat:emb:"
 
-# cache each answer for 1 hour
+# answers expire after 1 hour
 EMB_TTL = 3600
 
 
 def _build_key_prefix(user_id):
-    # separate cache namespace per user - users can't see each other's data
+    # build a key prefix that includes the user id so lookups stay isolated
     return f"{EMB_KEY_PREFIX}{user_id}:"
 
 
@@ -76,7 +66,7 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
     if redis_client is None:
         return None
 
-    # without a user we have no namespace to search in
+    # need a user to know which cache namespace to look in
     if user_id is None:
         return None
 
@@ -99,7 +89,7 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
             except Exception:
                 continue
 
-            # only match entries for the same document context
+            # skip entries from a different document, they won't match anyway
             if entry.get("document_id") != document_id:
                 continue
 
@@ -132,7 +122,7 @@ def semantic_cache_set(query: str, answer: str, document_id: str, user_id=None) 
     if redis_client is None or not answer:
         return
 
-    # no user means we can't scope it properly, skip
+    # can't scope without a user_id so just bail out
     if user_id is None:
         return
 
@@ -220,7 +210,7 @@ def invalidate_by_document(document_id: str, user_id=None) -> int:
 
     deleted = 0
     try:
-        # scope to this user if we know who they are, else scan everything (fallback)
+        # narrow to just this user's namespace if we have their id, otherwise scan all
         prefix = _build_key_prefix(user_id) if user_id else EMB_KEY_PREFIX
         keys = redis_client.keys(f"{prefix}*")
         to_delete = []

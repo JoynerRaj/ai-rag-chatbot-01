@@ -52,16 +52,16 @@ def upload_page(request):
         if not file:
             return render(request, "upload.html", {"error": "No file selected"})
 
-        # Step 1: Extract content on Django side
+        # pull the text out of the file before we send it anywhere
         content = DocumentExtractionService.extract_text(file, file.name.lower())
 
-        # Step 2: Send to FastAPI for Pinecone embedding
+        # send to fastapi which handles the pinecone embedding side
         pinecone_id, fastapi_text = FastAPIClient.upload_document(file)
         
         if fastapi_text and fastapi_text.strip():
             content = fastapi_text
         elif not content:
-            content = fastapi_text  # last-resort fallback
+            content = fastapi_text  # use fastapi text as a last resort if django side got nothing
 
         doc = Document.objects.create(
             user=request.user,
@@ -148,7 +148,7 @@ def delete_chat(request, chat_id):
 
 @login_required
 def cache_page(request):
-    # only show cache entries that belong to the currently logged in user
+    # only pull cache entries for the currently logged in user, not everyone
     cache_entries = get_user_cache_entries(user_id=request.user.id)
 
     return render(request, "cache.html", {
@@ -159,6 +159,6 @@ def cache_page(request):
 
 @login_required
 def clear_cache(request):
-    # only clear this user's cache entries, not everyone else's
+    # wipe only this user's cache - don't touch other users' data
     clear_user_cache(user_id=request.user.id)
     return redirect("cache")

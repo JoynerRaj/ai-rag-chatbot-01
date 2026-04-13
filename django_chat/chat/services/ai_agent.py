@@ -6,7 +6,7 @@ from chat.services.fastapi_client import FastAPIClient
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
 from chat.models import Document
 
-# defining the tool for searching documents so the AI knows how to fetch context
+# this is the tool definition that tells gemini it can search our documents
 search_doc_tool = types.Tool(
     function_declarations=[
         types.FunctionDeclaration(
@@ -35,7 +35,7 @@ search_doc_tool = types.Tool(
     ]
 )
 
-# simple helper to figure out if a message is just small talk
+# words and phrases we treat as small talk - these don't need to be cached
 CASUAL_PHRASES = {
     "hi", "hello", "hey", "hii", "helo", "good morning", "good evening",
     "good afternoon", "how are you", "what's up", "whats up", "sup",
@@ -56,7 +56,7 @@ class AIAgentService:
             user_id = user.id if (user and user.is_authenticated) else None
             print(f"[{chat_id}] process_query: {query!r}  user_id={user_id}")
 
-            # make sure they actually have documents, otherwise no point in querying right now
+            # no documents = nothing to search, tell the user to upload something first
             if user and user.is_authenticated:
                 has_docs = Document.objects.filter(user=user).exists()
             else:
@@ -69,8 +69,7 @@ class AIAgentService:
                     "I can only answer questions based on your uploaded knowledge base."
                 )
 
-            # check if we answered this before so we can just grab it and save some api calls
-            # we skip the cache lookup for simple casual messages - no point checking
+            # skip cache check for greetings and small talk, not worth looking up
             if not _is_casual_message(query):
                 cached = semantic_cache_get(query, document_id, user_id=user_id)
                 if cached:
@@ -112,19 +111,18 @@ class AIAgentService:
                 tools=[search_doc_tool],
             )
 
-            # build the conversation contents - start with any prior messages from this session
-            # this is how the model remembers what was said earlier in the chat
+            # put the previous messages in first so gemini knows what was discussed before
             contents = []
             if chat_history:
                 for past in chat_history:
                     contents.append(types.Content(role="user", parts=[types.Part(text=past["question"])]))
                     contents.append(types.Content(role="model", parts=[types.Part(text=past["answer"])]))
 
-            # now append the current user message at the end
+            # then add what the user just asked
             contents.append(types.Content(role="user", parts=[types.Part(text=query)]))
 
             MAX_ROUNDS = 3
-            tool_was_used = False  # track whether RAG was actually triggered
+            tool_was_used = False  # will flip to True if gemini actually calls search_documents
 
             for _ in range(MAX_ROUNDS):
                 response = client.models.generate_content(
@@ -155,7 +153,7 @@ class AIAgentService:
                         rag_result = FastAPIClient.search_documents(rag_query, doc_id)
                         print(f"[{chat_id}] RAG result: {len(rag_result)} chars")
 
-                        tool_was_used = True  # mark that we actually hit the knowledge base
+                        tool_was_used = True  # gemini searched the docs, this answer is worth caching
 
                         tool_response_parts.append(
                             types.Part.from_function_response(
@@ -171,8 +169,7 @@ class AIAgentService:
 
             print(f"[{chat_id}] Answer: {answer[:80]!r}")
 
-            # we got a fresh answer, let's cache it for next time
-            # but only if the tool was actually used - no point caching greetings or casual replies
+            # only cache if we actually searched documents - no caching for hello/thanks type replies
             if tool_was_used and answer and user_id is not None:
                 semantic_cache_set(query, answer, document_id, user_id=user_id)
 

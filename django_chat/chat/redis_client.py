@@ -16,7 +16,7 @@ def _build_client():
         else:
             client = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, decode_responses=True, socket_timeout=2, socket_connect_timeout=2)
 
-        # just sending a ping to confirm if redis is actually alive
+        # ping it to make sure the connection actually works before we use it
         client.ping()
         print(f"[Redis] Connected - {'URL' if _REDIS_URL else f'{_REDIS_HOST}:{_REDIS_PORT}'}")
         return client
@@ -26,5 +26,5 @@ def _build_client():
         return None
 
 
-# Module-level singleton; None means Redis is unavailable → callers skip cache.
+# single redis connection shared across the app - if it's None, caching is just skipped
 redis_client = _build_client()

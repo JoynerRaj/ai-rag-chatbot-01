@@ -46,19 +46,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 await self.send(json.dumps({"response": "Please enter a valid question."}))
                 return
 
-            # fetch the last 10 messages from this session so the model has recent context
-            # we order descending first to get the most recent ones, then flip them back to
-            # chronological order before passing them to the AI
+            # grab the last 10 messages - newest first, then reverse so order makes sense for gemini
             chat_history = []
             if self.chat_id:
                 history_qs = await sync_to_async(list)(
                     ChatHistory.objects.filter(session_id=self.chat_id).order_by("-created_at")[:10]
                 )
-                # reverse so the oldest message in the window comes first (chronological)
+                # flip it back to oldest-first so the conversation reads naturally
                 history_qs = list(reversed(history_qs))
                 chat_history = [{"question": h.question, "answer": h.answer} for h in history_qs]
 
-            # Run AI in background thread
+            # send the question + history off to the AI and wait for response
             answer = await sync_to_async(AIAgentService.process_query, thread_sensitive=False)(
                 query=query,
                 document_id=document_id,
@@ -67,7 +65,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 chat_history=chat_history
             )
 
-            # Save to DB
+            # store the question and answer so we can show history when the user reopens this chat
             if self.chat_id:
                 await sync_to_async(ChatHistory.objects.create)(
                     session_id=self.chat_id,
