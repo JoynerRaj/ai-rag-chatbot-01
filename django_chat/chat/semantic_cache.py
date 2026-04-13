@@ -42,7 +42,7 @@ def _get_embedding(text: str) -> list:
         fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
         embed_api = fastapi_url.replace("/upload", "") + "/embed"
 
-        res = requests.post(embed_api, json={"text": text}, timeout=15)
+        res = requests.post(embed_api, json={"text": text}, timeout=35)
         if res.ok:
             return res.json().get("embedding")
         else:

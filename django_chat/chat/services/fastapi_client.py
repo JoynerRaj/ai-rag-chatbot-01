@@ -4,7 +4,7 @@ import requests
 class FastAPIClient:
     @staticmethod
     def get_base_url():
-        return os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
+        return os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
 
     @classmethod
     def upload_document(cls, file) -> tuple[str, str]:
