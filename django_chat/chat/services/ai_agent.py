@@ -70,19 +70,19 @@ class AIAgentService:
             if document_id and str(document_id).strip():
                 system_instruction = (
                     "You are a helpful AI assistant. The user has selected a specific document to focus on. "
-                    "When answering factual queries, you MUST call the 'search_documents' tool to retrieve context from that document. "
+                    "You MUST call the 'search_documents' tool for ANY question that is not a simple casual greeting (like 'hello' or 'who are you'). "
+                    "Even for general knowledge questions (like 'what is AI'), you MUST search the document first. "
                     "If the answer is found in the document, answer based on the document. "
-                    "If the user is just saying hello, asking about you, or making casual conversation, you can answer naturally without using the tool. "
                     "If the user asks a specific question not covered in the document, kindly inform them that it's not in the selected document, "
                     "but you may provide general helpful information if appropriate."
                 )
             else:
                 system_instruction = (
                     "You are a helpful AI assistant with access to an uploaded knowledge base. "
-                    "When the user asks factual questions, you MUST call the 'search_documents' tool to search the uploaded documents. "
-                    "Answer based on what the tool returns when possible. "
-                    "If the user is just greeting you, asking about your capabilities, or making casual conversation, respond naturally without searching. "
-                    "If the documents do not contain the answer to a factual query, say: "
+                    "You MUST call the 'search_documents' tool for ANY informational or factual request, even general queries like 'what is AI'. "
+                    "The ONLY time you should NOT call the 'search_documents' tool is if the user is just saying a casual greeting (e.g., 'hello', 'how are you'). "
+                    "Answer based on what the tool returns from the documents when possible. "
+                    "If the documents do not contain the answer, say: "
                     "'I couldn't find specific information about this in the uploaded documents, but here's what I know generally:' and provide a helpful answer."
                 )
 
@@ -160,8 +160,8 @@ class AIAgentService:
 
             print(f"[{chat_id}] ✅ Answer: {answer[:80]!r}")
 
-            # we got a fresh answer, let's cache it for next time if it was a factual rag query
-            if used_rag:
+            # we got a fresh answer, let's cache it for next time if it was a factual rag query, or if it's a very detailed answer
+            if used_rag or len(answer) > 150:
                 semantic_cache_set(query, answer, document_id, user_id=user_id)
 
             return answer if answer else "I'm sorry, I couldn't generate a response."
