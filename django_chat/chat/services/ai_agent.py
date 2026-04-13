@@ -1,11 +1,10 @@
 import os
-import time
 import traceback
 from google import genai
 from google.genai import types
 from chat.services.fastapi_client import FastAPIClient
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
-from chat.models import Document, ChatHistory
+from chat.models import Document
 
 # defining the tool for searching documents so the AI knows how to fetch context
 search_doc_tool = types.Tool(
@@ -36,31 +35,47 @@ search_doc_tool = types.Tool(
     ]
 )
 
+# simple helper to figure out if a message is just small talk
+CASUAL_PHRASES = {
+    "hi", "hello", "hey", "hii", "helo", "good morning", "good evening",
+    "good afternoon", "how are you", "what's up", "whats up", "sup",
+    "thanks", "thank you", "ok", "okay", "bye", "goodbye", "see you",
+    "great", "nice", "cool", "awesome", "got it", "understood"
+}
+
+def _is_casual_message(text: str) -> bool:
+    """returns True if this looks like a greeting or small talk that shouldn't be cached"""
+    cleaned = text.strip().lower().rstrip("!?.,:;")
+    return cleaned in CASUAL_PHRASES or len(cleaned.split()) <= 2 and cleaned in CASUAL_PHRASES
+
+
 class AIAgentService:
     @staticmethod
-    def process_query(query: str, document_id: str, user, chat_id: int) -> str:
+    def process_query(query: str, document_id: str, user, chat_id: int, chat_history: list = None) -> str:
         try:
-            print(f"[{chat_id}] process_query: {query!r}")
+            user_id = user.id if (user and user.is_authenticated) else None
+            print(f"[{chat_id}] process_query: {query!r}  user_id={user_id}")
 
             # make sure they actually have documents, otherwise no point in querying right now
             if user and user.is_authenticated:
                 has_docs = Document.objects.filter(user=user).exists()
             else:
                 has_docs = Document.objects.exists()
-                
+
             if not has_docs:
                 return (
-                    "📚 No documents uploaded yet.\n\n"
-                    "Please go to **Documents → Upload** and add a document first. "
+                    "No documents uploaded yet.\n\n"
+                    "Please go to **Documents -> Upload** and add a document first. "
                     "I can only answer questions based on your uploaded knowledge base."
                 )
 
             # check if we answered this before so we can just grab it and save some api calls
-            user_id = user.id if user and user.is_authenticated else None
-            cached = semantic_cache_get(query, document_id, user_id=user_id)
-            if cached:
-                print(f"[{chat_id}] ✅ Semantic Cache HIT")
-                return cached
+            # we skip the cache lookup for simple casual messages - no point checking
+            if not _is_casual_message(query):
+                cached = semantic_cache_get(query, document_id, user_id=user_id)
+                if cached:
+                    print(f"[{chat_id}] Semantic Cache HIT")
+                    return cached
 
             client = genai.Client(
                 api_key=os.getenv("GEMINI_API_KEY"),
@@ -70,19 +85,19 @@ class AIAgentService:
             if document_id and str(document_id).strip():
                 system_instruction = (
                     "You are a helpful AI assistant. The user has selected a specific document to focus on. "
-                    "You MUST call the 'search_documents' tool for ANY question that is not a simple casual greeting (like 'hello' or 'who are you'). "
-                    "Even for general knowledge questions (like 'what is AI'), you MUST search the document first. "
+                    "When answering factual queries, you MUST call the 'search_documents' tool to retrieve context from that document. "
                     "If the answer is found in the document, answer based on the document. "
+                    "If the user is just saying hello, asking about you, or making casual conversation, you can answer naturally without using the tool. "
                     "If the user asks a specific question not covered in the document, kindly inform them that it's not in the selected document, "
                     "but you may provide general helpful information if appropriate."
                 )
             else:
                 system_instruction = (
                     "You are a helpful AI assistant with access to an uploaded knowledge base. "
-                    "You MUST call the 'search_documents' tool for ANY informational or factual request, even general queries like 'what is AI'. "
-                    "The ONLY time you should NOT call the 'search_documents' tool is if the user is just saying a casual greeting (e.g., 'hello', 'how are you'). "
-                    "Answer based on what the tool returns from the documents when possible. "
-                    "If the documents do not contain the answer, say: "
+                    "When the user asks factual questions, you MUST call the 'search_documents' tool to search the uploaded documents. "
+                    "Answer based on what the tool returns when possible. "
+                    "If the user is just greeting you, asking about your capabilities, or making casual conversation, respond naturally without searching. "
+                    "If the documents do not contain the answer to a factual query, say: "
                     "'I couldn't find specific information about this in the uploaded documents, but here's what I know generally:' and provide a helpful answer."
                 )
 
@@ -91,37 +106,26 @@ class AIAgentService:
                 tools=[search_doc_tool],
             )
 
+            # build the conversation contents - start with any prior messages from this session
+            # this is how the model remembers what was said earlier in the chat
             contents = []
-            if chat_id:
-                history = list(ChatHistory.objects.filter(session_id=chat_id).order_by('-created_at')[:8])
-                history.reverse()
-                for h in history:
-                    if h.answer.startswith("The AI model is currently") or h.answer.startswith("The AI service quota") or h.answer.startswith("An unexpected error") or h.answer.startswith("📚 No documents") or h.answer.startswith("There was an issue"):
-                        continue
-                    contents.append(types.Content(role="user", parts=[types.Part(text=h.question)]))
-                    contents.append(types.Content(role="model", parts=[types.Part(text=h.answer)]))
-            
+            if chat_history:
+                for past in chat_history:
+                    contents.append(types.Content(role="user", parts=[types.Part(text=past["question"])]))
+                    contents.append(types.Content(role="model", parts=[types.Part(text=past["answer"])]))
+
+            # now append the current user message at the end
             contents.append(types.Content(role="user", parts=[types.Part(text=query)]))
 
-            used_rag = False
-
             MAX_ROUNDS = 3
+            tool_was_used = False  # track whether RAG was actually triggered
+
             for _ in range(MAX_ROUNDS):
-                response = None
-                for attempt in range(3):
-                    try:
-                        response = client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=contents,
-                            config=config,
-                        )
-                        break
-                    except Exception as api_e:
-                        err_str = str(api_e)
-                        if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str) and attempt < 2:
-                            time.sleep(2)
-                            continue
-                        raise api_e
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=contents,
+                    config=config,
+                )
 
                 contents.append(response.candidates[0].content)
 
@@ -137,14 +141,15 @@ class AIAgentService:
                 tool_response_parts = []
                 for fn_call in fn_calls:
                     if fn_call.name == "search_documents":
-                        used_rag = True
                         args = dict(fn_call.args)
                         rag_query = args.get("query", query)
                         doc_id = args.get("document_id", document_id) or document_id
 
-                        print(f"[{chat_id}] 🔍 RAG tool called: query={rag_query!r}")
+                        print(f"[{chat_id}] RAG tool called: query={rag_query!r}")
                         rag_result = FastAPIClient.search_documents(rag_query, doc_id)
-                        print(f"[{chat_id}] 📄 RAG result: {len(rag_result)} chars")
+                        print(f"[{chat_id}] RAG result: {len(rag_result)} chars")
+
+                        tool_was_used = True  # mark that we actually hit the knowledge base
 
                         tool_response_parts.append(
                             types.Part.from_function_response(
@@ -158,10 +163,11 @@ class AIAgentService:
             answer = "".join([part.text for part in response.candidates[0].content.parts if hasattr(part, "text") and part.text])
             answer = answer.strip()
 
-            print(f"[{chat_id}] ✅ Answer: {answer[:80]!r}")
+            print(f"[{chat_id}] Answer: {answer[:80]!r}")
 
-            # we got a fresh answer, let's cache it for next time if it was a factual rag query, or if it's a very detailed answer
-            if used_rag or len(answer) > 150:
+            # we got a fresh answer, let's cache it for next time
+            # but only if the tool was actually used - no point caching greetings or casual replies
+            if tool_was_used and answer and user_id is not None:
                 semantic_cache_set(query, answer, document_id, user_id=user_id)
 
             return answer if answer else "I'm sorry, I couldn't generate a response."
@@ -170,7 +176,7 @@ class AIAgentService:
             print(f"[{chat_id}] ERROR: {e}")
             traceback.print_exc()
             error_msg = str(e)
-            
+
             if "503" in error_msg or "UNAVAILABLE" in error_msg:
                 return "The AI model is currently experiencing high demand. Spikes in demand are usually temporary. Please wait a few moments and try again."
             elif "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():

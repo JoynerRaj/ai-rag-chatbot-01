@@ -46,24 +46,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 await self.send(json.dumps({"response": "Please enter a valid question."}))
                 return
 
+            # load the last 10 messages from this session as context for the model
+            chat_history = []
+            if self.chat_id:
+                history_qs = await sync_to_async(list)(
+                    ChatHistory.objects.filter(session_id=self.chat_id).order_by("created_at")[:10]
+                )
+                chat_history = [{"question": h.question, "answer": h.answer} for h in history_qs]
+
             # Run AI in background thread
             answer = await sync_to_async(AIAgentService.process_query, thread_sensitive=False)(
-                query=query, 
+                query=query,
                 document_id=document_id,
                 user=self.user,
-                chat_id=self.chat_id
+                chat_id=self.chat_id,
+                chat_history=chat_history
             )
 
             # Save to DB
-            is_error = answer and (
-                answer.startswith("The AI model is currently") or 
-                answer.startswith("The AI service quota") or 
-                answer.startswith("There was an issue processing") or 
-                answer.startswith("An unexpected error") or 
-                answer.startswith("📚 No documents")
-            )
-
-            if self.chat_id and not is_error:
+            if self.chat_id:
                 await sync_to_async(ChatHistory.objects.create)(
                     session_id=self.chat_id,
                     question=query,

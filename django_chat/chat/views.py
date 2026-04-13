@@ -7,7 +7,7 @@ import json
 from .models import Document, ChatHistory, ChatSession
 from chat.services.fastapi_client import FastAPIClient
 from chat.services.document_service import DocumentExtractionService
-from .semantic_cache import invalidate_by_document
+from .semantic_cache import invalidate_by_document, get_user_cache_entries, clear_user_cache
 from .redis_client import redis_client
 
 def health_check(request):
@@ -89,7 +89,7 @@ def delete_document(request, id):
         FastAPIClient.delete_document(doc.pinecone_id)
 
     try:
-        invalidate_by_document(str(doc.pinecone_id))
+        invalidate_by_document(str(doc.pinecone_id), user_id=request.user.id)
     except Exception as e:
         print("Cache invalidation error:", e)
 
@@ -148,33 +148,8 @@ def delete_chat(request, chat_id):
 
 @login_required
 def cache_page(request):
-    cache_entries = []
-    if redis_client is not None:
-        try:
-            user_prefix = f"{request.user.id}:" if request.user.is_authenticated else "public:"
-            keys = redis_client.keys(f"chat:emb:{user_prefix}*")
-            for k in keys:
-                raw = redis_client.get(k)
-                ttl = redis_client.ttl(k)
-                if not raw:
-                    continue
-                try:
-                    entry = json.loads(raw)
-                    query   = entry.get("query", "")
-                    answer  = entry.get("answer", "")
-                    doc_id  = entry.get("document_id") or "(all documents)"
-                    answer_preview = answer if len(answer) < 300 else answer[:300] + "..."
-                    cache_entries.append({
-                        "key":     k,
-                        "query":   query,
-                        "value":   answer_preview,
-                        "doc_id":  doc_id,
-                        "ttl":     ttl if ttl > 0 else "Expired",
-                    })
-                except Exception:
-                    pass  
-        except Exception as e:
-            print("Redis read error on cache page:", e)
+    # only show cache entries that belong to the currently logged in user
+    cache_entries = get_user_cache_entries(user_id=request.user.id)
 
     return render(request, "cache.html", {
         "cache_entries": cache_entries,
@@ -184,12 +159,6 @@ def cache_page(request):
 
 @login_required
 def clear_cache(request):
-    if redis_client is not None:
-        try:
-            user_prefix = f"{request.user.id}:" if request.user.is_authenticated else "public:"
-            keys = redis_client.keys(f"chat:emb:{user_prefix}*")
-            if keys:
-                redis_client.delete(*keys)
-        except Exception as e:
-            print("Redis delete error:", e)
+    # only clear this user's cache entries, not everyone else's
+    clear_user_cache(user_id=request.user.id)
     return redirect("cache")
