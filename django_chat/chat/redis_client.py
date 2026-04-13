@@ -12,17 +12,17 @@ _REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
 def _build_client():
     try:
         if _REDIS_URL:
-            client = redis.from_url(_REDIS_URL, decode_responses=True)
+            client = redis.from_url(_REDIS_URL, decode_responses=True, socket_timeout=2, socket_connect_timeout=2)
         else:
-            client = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, decode_responses=True)
+            client = redis.Redis(host=_REDIS_HOST, port=_REDIS_PORT, decode_responses=True, socket_timeout=2, socket_connect_timeout=2)
 
-        # Verify the connection is actually alive
+        # just sending a ping to confirm if redis is actually alive
         client.ping()
-        print(f"[Redis] ✅ Connected – {'URL' if _REDIS_URL else f'{_REDIS_HOST}:{_REDIS_PORT}'}")
+        print(f"[Redis] Connected - {'URL' if _REDIS_URL else f'{_REDIS_HOST}:{_REDIS_PORT}'}")
         return client
 
     except Exception as e:
-        print(f"[Redis] ⚠️  Could not connect ({e}). Caching disabled – falling back to normal flow.")
+        print(f"[Redis] Could not connect ({e}). Caching disabled - falling back to normal flow.")
         return None
 
 

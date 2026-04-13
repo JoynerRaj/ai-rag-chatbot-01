@@ -6,7 +6,7 @@ from chat.services.fastapi_client import FastAPIClient
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
 from chat.models import Document
 
-# ── RAG Tool Definition ──────────────────────────────────────────────────────
+# defining the tool for searching documents so the AI knows how to fetch context
 search_doc_tool = types.Tool(
     function_declarations=[
         types.FunctionDeclaration(
@@ -41,7 +41,7 @@ class AIAgentService:
         try:
             print(f"[{chat_id}] process_query: {query!r}")
 
-            # Guard: No documents uploaded yet for THIS user
+            # make sure they actually have documents, otherwise no point in querying right now
             if user and user.is_authenticated:
                 has_docs = Document.objects.filter(user=user).exists()
             else:
@@ -54,7 +54,7 @@ class AIAgentService:
                     "I can only answer questions based on your uploaded knowledge base."
                 )
 
-            # Semantic Cache: READ
+            # check if we answered this before so we can just grab it and save some api calls
             cached = semantic_cache_get(query, document_id)
             if cached:
                 print(f"[{chat_id}] ✅ Semantic Cache HIT")
@@ -67,20 +67,21 @@ class AIAgentService:
 
             if document_id and str(document_id).strip():
                 system_instruction = (
-                    "You are a helpful AI assistant. The user has selected a SPECIFIC document to search. "
-                    "You MUST call the 'search_documents' tool for EVERY question to retrieve context from that document. "
-                    "Answer ONLY based on the retrieved document context. "
-                    "If the answer is not found in the document, say: 'This information is not available in the selected document.' "
-                    "Do NOT use your general knowledge — only use what the tool returns."
+                    "You are a helpful AI assistant. The user has selected a specific document to focus on. "
+                    "When answering factual queries, you MUST call the 'search_documents' tool to retrieve context from that document. "
+                    "If the answer is found in the document, answer based on the document. "
+                    "If the user is just saying hello, asking about you, or making casual conversation, you can answer naturally without using the tool. "
+                    "If the user asks a specific question not covered in the document, kindly inform them that it's not in the selected document, "
+                    "but you may provide general helpful information if appropriate."
                 )
             else:
                 system_instruction = (
                     "You are a helpful AI assistant with access to an uploaded knowledge base. "
-                    "You MUST call the 'search_documents' tool for EVERY question to search the uploaded documents. "
-                    "Answer ONLY based on what the tool returns from the uploaded documents. "
-                    "Do NOT use your general knowledge or training data under any circumstances. "
-                    "If the documents do not contain the answer, say: "
-                    "'I could not find this information in the uploaded documents. Please try uploading a relevant document.'"
+                    "When the user asks factual questions, you MUST call the 'search_documents' tool to search the uploaded documents. "
+                    "Answer based on what the tool returns when possible. "
+                    "If the user is just greeting you, asking about your capabilities, or making casual conversation, respond naturally without searching. "
+                    "If the documents do not contain the answer to a factual query, say: "
+                    "'I couldn't find specific information about this in the uploaded documents, but here's what I know generally:' and provide a helpful answer."
                 )
 
             config = types.GenerateContentConfig(
@@ -134,7 +135,7 @@ class AIAgentService:
 
             print(f"[{chat_id}] ✅ Answer: {answer[:80]!r}")
 
-            # Semantic Cache: WRITE
+            # we got a fresh answer, let's cache it for next time
             semantic_cache_set(query, answer, document_id)
 
             return answer if answer else "I'm sorry, I couldn't generate a response."
@@ -142,4 +143,13 @@ class AIAgentService:
         except Exception as e:
             print(f"[{chat_id}] ERROR: {e}")
             traceback.print_exc()
-            return f"Error: {str(e)}"
+            error_msg = str(e)
+            
+            if "503" in error_msg or "UNAVAILABLE" in error_msg:
+                return "The AI model is currently experiencing high demand. Spikes in demand are usually temporary. Please wait a few moments and try again."
+            elif "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
+                return "The AI service quota has been exceeded. Please try again later."
+            elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
+                return "There was an issue processing your request. Please try rephrasing your question."
+            else:
+                return "An unexpected error occurred while generating a response. Please try again later."
