@@ -151,7 +151,8 @@ def cache_page(request):
     cache_entries = []
     if redis_client is not None:
         try:
-            keys = redis_client.keys("chat:emb:*")
+            user_prefix = f"{request.user.id}:" if request.user.is_authenticated else "public:"
+            keys = redis_client.keys(f"chat:emb:{user_prefix}*")
             for k in keys:
                 raw = redis_client.get(k)
                 ttl = redis_client.ttl(k)
@@ -185,7 +186,8 @@ def cache_page(request):
 def clear_cache(request):
     if redis_client is not None:
         try:
-            keys = redis_client.keys("chat:emb:*")
+            user_prefix = f"{request.user.id}:" if request.user.is_authenticated else "public:"
+            keys = redis_client.keys(f"chat:emb:{user_prefix}*")
             if keys:
                 redis_client.delete(*keys)
         except Exception as e:

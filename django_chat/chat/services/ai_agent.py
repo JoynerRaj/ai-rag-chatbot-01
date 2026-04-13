@@ -4,7 +4,7 @@ from google import genai
 from google.genai import types
 from chat.services.fastapi_client import FastAPIClient
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
-from chat.models import Document
+from chat.models import Document, ChatHistory
 
 # defining the tool for searching documents so the AI knows how to fetch context
 search_doc_tool = types.Tool(
@@ -55,7 +55,8 @@ class AIAgentService:
                 )
 
             # check if we answered this before so we can just grab it and save some api calls
-            cached = semantic_cache_get(query, document_id)
+            user_id = user.id if user and user.is_authenticated else None
+            cached = semantic_cache_get(query, document_id, user_id=user_id)
             if cached:
                 print(f"[{chat_id}] ✅ Semantic Cache HIT")
                 return cached
@@ -89,7 +90,17 @@ class AIAgentService:
                 tools=[search_doc_tool],
             )
 
-            contents = [types.Content(role="user", parts=[types.Part(text=query)])]
+            contents = []
+            if chat_id:
+                history = list(ChatHistory.objects.filter(session_id=chat_id).order_by('-created_at')[:5])
+                history.reverse()
+                for h in history:
+                    contents.append(types.Content(role="user", parts=[types.Part(text=h.question)]))
+                    contents.append(types.Content(role="model", parts=[types.Part(text=h.answer)]))
+            
+            contents.append(types.Content(role="user", parts=[types.Part(text=query)]))
+
+            used_rag = False
 
             MAX_ROUNDS = 3
             for _ in range(MAX_ROUNDS):
@@ -113,6 +124,7 @@ class AIAgentService:
                 tool_response_parts = []
                 for fn_call in fn_calls:
                     if fn_call.name == "search_documents":
+                        used_rag = True
                         args = dict(fn_call.args)
                         rag_query = args.get("query", query)
                         doc_id = args.get("document_id", document_id) or document_id
@@ -135,8 +147,9 @@ class AIAgentService:
 
             print(f"[{chat_id}] ✅ Answer: {answer[:80]!r}")
 
-            # we got a fresh answer, let's cache it for next time
-            semantic_cache_set(query, answer, document_id)
+            # we got a fresh answer, let's cache it for next time if it was a factual rag query
+            if used_rag:
+                semantic_cache_set(query, answer, document_id, user_id=user_id)
 
             return answer if answer else "I'm sorry, I couldn't generate a response."
 

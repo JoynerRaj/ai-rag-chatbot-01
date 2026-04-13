@@ -64,20 +64,22 @@ def _cosine_similarity(a: list, b: list) -> float:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
-def semantic_cache_get(query: str, document_id: str):
+def semantic_cache_get(query: str, document_id: str, user_id=None):
     """
     Try to find a semantically similar cached answer.
     Returns the cached answer string, or None if no good match found.
     """
     if redis_client is None:
         return None
+        
+    user_prefix = f"{user_id}:" if user_id else "public:"
 
     query_emb = _get_embedding(query)
     if query_emb is None:
         return None
 
     try:
-        keys = redis_client.keys(f"{EMB_KEY_PREFIX}*")
+        keys = redis_client.keys(f"{EMB_KEY_PREFIX}{user_prefix}*")
         best_score  = -1.0
         best_answer = None
 
@@ -115,10 +117,12 @@ def semantic_cache_get(query: str, document_id: str):
         return None
 
 
-def semantic_cache_set(query: str, answer: str, document_id: str) -> None:
+def semantic_cache_set(query: str, answer: str, document_id: str, user_id=None) -> None:
     """Embed the query and store the answer in the semantic cache."""
     if redis_client is None or not answer:
         return
+        
+    user_prefix = f"{user_id}:" if user_id else "public:"
 
     emb = _get_embedding(query)
     if emb is None:
@@ -131,7 +135,7 @@ def semantic_cache_set(query: str, answer: str, document_id: str) -> None:
             "document_id": document_id,
             "embedding":   emb,
         })
-        key = f"{EMB_KEY_PREFIX}{uuid.uuid4().hex}"
+        key = f"{EMB_KEY_PREFIX}{user_prefix}{uuid.uuid4().hex}"
         redis_client.set(key, entry, ex=EMB_TTL)
         print(f"[SemanticCache] 💾 Stored  key={key!r}  query={query!r}")
     except Exception as e:
