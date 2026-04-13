@@ -85,6 +85,8 @@ class AIAgentService:
             if document_id and str(document_id).strip():
                 system_instruction = (
                     "You are a helpful AI assistant. The user has selected a specific document to focus on. "
+                    "You have access to the full conversation history of this session — use it to remember "
+                    "anything the user has told you, such as their name, preferences, or prior questions. "
                     "When answering factual queries, you MUST call the 'search_documents' tool to retrieve context from that document. "
                     "If the answer is found in the document, answer based on the document. "
                     "If the user is just saying hello, asking about you, or making casual conversation, you can answer naturally without using the tool. "
@@ -94,7 +96,11 @@ class AIAgentService:
             else:
                 system_instruction = (
                     "You are a helpful AI assistant with access to an uploaded knowledge base. "
-                    "When the user asks factual questions, you MUST call the 'search_documents' tool to search the uploaded documents. "
+                    "You have access to the full conversation history of this session. "
+                    "Always use the conversation history to remember personal details the user has shared, "
+                    "such as their name, what they are working on, or anything they mentioned before. "
+                    "If the user previously said their name is X and then asks 'what is my name', you MUST answer using that prior information. "
+                    "When the user asks factual questions about documents, you MUST call the 'search_documents' tool to search the uploaded documents. "
                     "Answer based on what the tool returns when possible. "
                     "If the user is just greeting you, asking about your capabilities, or making casual conversation, respond naturally without searching. "
                     "If the documents do not contain the answer to a factual query, say: "

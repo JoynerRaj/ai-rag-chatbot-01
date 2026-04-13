@@ -46,12 +46,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 await self.send(json.dumps({"response": "Please enter a valid question."}))
                 return
 
-            # load the last 10 messages from this session as context for the model
+            # fetch the last 10 messages from this session so the model has recent context
+            # we order descending first to get the most recent ones, then flip them back to
+            # chronological order before passing them to the AI
             chat_history = []
             if self.chat_id:
                 history_qs = await sync_to_async(list)(
-                    ChatHistory.objects.filter(session_id=self.chat_id).order_by("created_at")[:10]
+                    ChatHistory.objects.filter(session_id=self.chat_id).order_by("-created_at")[:10]
                 )
+                # reverse so the oldest message in the window comes first (chronological)
+                history_qs = list(reversed(history_qs))
                 chat_history = [{"question": h.question, "answer": h.answer} for h in history_qs]
 
             # Run AI in background thread
