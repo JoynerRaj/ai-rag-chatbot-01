@@ -55,7 +55,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
             # Save to DB
-            if self.chat_id:
+            is_error = answer and (
+                answer.startswith("The AI model is currently") or 
+                answer.startswith("The AI service quota") or 
+                answer.startswith("There was an issue processing") or 
+                answer.startswith("An unexpected error") or 
+                answer.startswith("📚 No documents")
+            )
+
+            if self.chat_id and not is_error:
                 await sync_to_async(ChatHistory.objects.create)(
                     session_id=self.chat_id,
                     question=query,

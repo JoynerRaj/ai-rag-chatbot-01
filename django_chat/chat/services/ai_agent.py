@@ -1,4 +1,5 @@
 import os
+import time
 import traceback
 from google import genai
 from google.genai import types
@@ -92,9 +93,11 @@ class AIAgentService:
 
             contents = []
             if chat_id:
-                history = list(ChatHistory.objects.filter(session_id=chat_id).order_by('-created_at')[:5])
+                history = list(ChatHistory.objects.filter(session_id=chat_id).order_by('-created_at')[:8])
                 history.reverse()
                 for h in history:
+                    if h.answer.startswith("The AI model is currently") or h.answer.startswith("The AI service quota") or h.answer.startswith("An unexpected error") or h.answer.startswith("📚 No documents") or h.answer.startswith("There was an issue"):
+                        continue
                     contents.append(types.Content(role="user", parts=[types.Part(text=h.question)]))
                     contents.append(types.Content(role="model", parts=[types.Part(text=h.answer)]))
             
@@ -104,11 +107,21 @@ class AIAgentService:
 
             MAX_ROUNDS = 3
             for _ in range(MAX_ROUNDS):
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=contents,
-                    config=config,
-                )
+                response = None
+                for attempt in range(3):
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=contents,
+                            config=config,
+                        )
+                        break
+                    except Exception as api_e:
+                        err_str = str(api_e)
+                        if ("503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str) and attempt < 2:
+                            time.sleep(2)
+                            continue
+                        raise api_e
 
                 contents.append(response.candidates[0].content)
 
