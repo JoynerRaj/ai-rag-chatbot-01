@@ -56,17 +56,17 @@ class AIAgentService:
             user_id = user.id if (user and user.is_authenticated) else None
             print(f"[{chat_id}] process_query: {query!r}  user_id={user_id}")
 
-            # no documents = nothing to search, tell the user to upload something first
+            # only count documents that are fully embedded - pending ones have no pinecone data yet
             if user and user.is_authenticated:
-                has_docs = Document.objects.filter(user=user).exists()
+                has_docs = Document.objects.filter(user=user, embedding_status="done").exists()
             else:
-                has_docs = Document.objects.exists()
+                has_docs = Document.objects.filter(embedding_status="done").exists()
 
             if not has_docs:
                 return (
-                    "No documents uploaded yet.\n\n"
-                    "Please go to **Documents -> Upload** and add a document first. "
-                    "I can only answer questions based on your uploaded knowledge base."
+                    "No embedded documents found.\n\n"
+                    "Please go to **Documents → Upload** and add a document first. "
+                    "If you just uploaded one, wait a moment for embedding to finish, then try again."
                 )
 
             # skip cache check for greetings and small talk, not worth looking up

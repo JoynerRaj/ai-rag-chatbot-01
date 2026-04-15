@@ -101,13 +101,21 @@ class FastAPIClient:
 
             results = res.json()
             if not results:
+                print(f"[search_documents] Pinecone returned 0 results for: {query!r}")
                 return "No relevant information found in the uploaded documents."
 
-            # only keep chunks with a meaningful similarity score
-            SCORE_THRESHOLD = 0.45
+            # log the scores so we can see what pinecone actually returned
+            for r in results:
+                print(f"[search_documents] score={r.get('score', 0):.3f}  text={r.get('text', '')[:60]!r}")
+
+            # 0.30 threshold - lower than before to handle short queries like 'what is ai'
+            # if scores are still too low, check that the document embedded correctly
+            SCORE_THRESHOLD = 0.30
             relevant = [item for item in results if item.get("score", 0) >= SCORE_THRESHOLD]
 
             if not relevant:
+                scores = [round(r.get('score', 0), 3) for r in results]
+                print(f"[search_documents] All scores below threshold {SCORE_THRESHOLD}: {scores}")
                 return "No sufficiently relevant content found in the uploaded documents for this query."
 
             chunks = "\n---\n".join([item["text"] for item in relevant])

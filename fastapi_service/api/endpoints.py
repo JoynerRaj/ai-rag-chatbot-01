@@ -54,25 +54,31 @@ async def upload_file(file: UploadFile = File(...)):
 @router.post("/search")
 def search_pinecone(req: SearchQuery):
     try:
+        print(f"[search] query={req.query!r}  doc_id={req.document_id!r}  top_k={req.top_k}")
+
         query_embedding = EmbeddingService.embed_text(req.query)
-        
+
         results = VectorDBService.search(
-            query_embedding=query_embedding, 
-            top_k=req.top_k, 
+            query_embedding=query_embedding,
+            top_k=req.top_k,
             document_id=req.document_id
         )
-        
+
         matches = []
         for match in results.matches:
             text_context = ""
             if match.metadata:
                 text_context = match.metadata.get("text", "")
-            
+
+            print(f"[search] score={match.score:.3f}  id={match.id}  text={text_context[:60]!r}")
+
             matches.append({
                 "id": match.id,
                 "score": match.score,
                 "text": text_context
             })
+
+        print(f"[search] returning {len(matches)} match(es)")
         return matches
     except Exception as e:
         import traceback
