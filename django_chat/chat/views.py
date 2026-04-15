@@ -3,6 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.utils.timezone import localtime
 import json
+import io
+import threading
 
 from .models import Document, ChatHistory, ChatSession
 from chat.services.fastapi_client import FastAPIClient
@@ -52,49 +54,56 @@ def upload_page(request):
         if not file:
             return render(request, "upload.html", {"error": "No file selected"})
 
-        # Extract text locally first (fast, no network)
+        # read the file bytes and extract text right here before anything async happens
         file_bytes = file.read()
-        file_name  = file.name.lower()
+        file_name = file.name.lower()
         content = DocumentExtractionService.extract_text_from_bytes(file_bytes, file_name) or ""
 
-        # Upload to FastAPI / Pinecone (synchronous — this is reliable on Render)
-        import io
-        file_like = io.BytesIO(file_bytes)
-        try:
-            pinecone_id, fastapi_text = FastAPIClient.upload_document(
-                file_like, filename=file.name
-            )
-        except Exception as e:
-            print(f"[upload] FastAPI call failed: {e}")
-            pinecone_id, fastapi_text = "", ""
+        if not content.strip():
+            return render(request, "upload.html", {
+                "error": "Could not read any text from this file. Make sure it is a valid PDF, DOCX, or TXT."
+            })
 
-        if fastapi_text and fastapi_text.strip():
-            content = fastapi_text
-
-        embedding_status = Document.EMBEDDING_DONE if pinecone_id else Document.EMBEDDING_FAILED
-
+        # save to DB straight away with status pending - user gets redirected immediately
         doc = Document.objects.create(
             user=request.user,
             title=title,
             content=content,
-            pinecone_id=pinecone_id or None,
-            embedding_status=embedding_status,
+            pinecone_id=None,
+            embedding_status=Document.EMBEDDING_PENDING,
         )
-        print(f"[upload] Doc #{doc.id} saved — pinecone_id={pinecone_id!r}  status={embedding_status}")
+        print(f"[upload] Doc #{doc.id} saved with pending status, starting background embed...")
 
-        if not pinecone_id:
-            # the document is saved in the DB but pinecone embedding didn't work
-            # this usually means the FastAPI service was cold starting on Render
-            # tell the user their file is saved and suggest retrying the upload
-            return render(request, "upload.html", {
-                "warning": (
-                    "Your document was saved but could not be embedded right now — "
-                    "the embedding service may have been starting up. "
-                    "Please try uploading the same file again in 30 seconds."
-                ),
-                "prefill_title": title,
-            })
+        # kick off pinecone embedding in a background thread so the HTTP response
+        # finishes quickly and does not hit Render's 30-second request timeout
+        def embed_in_background(doc_id, raw_bytes, original_filename):
+            try:
+                file_like = io.BytesIO(raw_bytes)
+                pinecone_id, fastapi_text = FastAPIClient.upload_document(
+                    file_like, filename=original_filename
+                )
+                doc_obj = Document.objects.get(id=doc_id)
+                if pinecone_id:
+                    doc_obj.pinecone_id = pinecone_id
+                    doc_obj.embedding_status = Document.EMBEDDING_DONE
+                    if fastapi_text and fastapi_text.strip():
+                        doc_obj.content = fastapi_text
+                    print(f"[upload] Doc #{doc_id} embedded OK - pinecone_id={pinecone_id!r}")
+                else:
+                    doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                    print(f"[upload] Doc #{doc_id} embedding failed after all retries")
+                doc_obj.save()
+            except Exception as e:
+                print(f"[upload] background embed error for doc #{doc_id}: {e}")
 
+        t = threading.Thread(
+            target=embed_in_background,
+            args=(doc.id, file_bytes, file.name),
+            daemon=True
+        )
+        t.start()
+
+        # redirect straight away - embedding continues in the background
         return redirect("documents")
 
     return render(request, "upload.html")
@@ -110,7 +119,7 @@ def document_list(request):
 def delete_document(request, id):
     doc = get_object_or_404(Document, id=id, user=request.user)
 
-    # try to remove from Pinecone — if FastAPI is down, still delete from DB
+    # try to remove from Pinecone - if FastAPI is down, still delete from DB
     if doc.pinecone_id:
         try:
             FastAPIClient.delete_document(doc.pinecone_id)
@@ -160,11 +169,11 @@ def create_chat_ajax(request):
             first_msg = body.get("message", "New Chat")
         except Exception:
             first_msg = "New Chat"
-            
+
         title = first_msg[:50] if first_msg else "New Chat"
         chat = ChatSession.objects.create(user=request.user, title=title)
         return JsonResponse({"chat_id": chat.id, "title": title})
-        
+
     return JsonResponse({"error": "POST required"}, status=405)
 
 
