@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 
 class FastAPIClient:
     @staticmethod
@@ -7,12 +8,38 @@ class FastAPIClient:
         return os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
 
     @classmethod
+    def _base(cls):
+        """Root URL without the /upload suffix."""
+        return cls.get_base_url().replace("/upload", "")
+
+    @classmethod
+    def wake_up(cls):
+        """Ping the FastAPI health endpoint to wake it from Render cold start.
+        Waits up to 40 seconds for the service to come alive.
+        """
+        url = cls._base() + "/"
+        for attempt in range(4):
+            try:
+                res = requests.get(url, timeout=15)
+                if res.ok:
+                    print(f"FastAPI awake after {attempt + 1} attempt(s)")
+                    return True
+            except Exception as e:
+                print(f"FastAPI wake attempt {attempt + 1} failed: {e}")
+            time.sleep(5)
+        print("FastAPI did not wake in time.")
+        return False
+
+    @classmethod
     def upload_document(cls, file) -> tuple[str, str]:
-        """Uploads document to FastAPI for Pinecone embedding."""
+        """Uploads document to FastAPI for Pinecone embedding.
+        Wakes up the Render service first if it's cold-starting.
+        """
+        cls.wake_up()  # ensure FastAPI is alive before the real upload
         url = cls.get_base_url()
         try:
             file.seek(0)
-            res = requests.post(url, files={"file": file}, timeout=60)
+            res = requests.post(url, files={"file": file}, timeout=120)
             if res.status_code == 200:
                 res_json = res.json()
                 return res_json.get("document_id", ""), res_json.get("text", "")
@@ -54,7 +81,7 @@ class FastAPIClient:
     def delete_document(cls, document_id: str):
         """Deletes a document from FastAPI Pinecone DB."""
         try:
-            url = cls.get_base_url().replace("/upload", "") + f"/delete/{document_id}"
+            url = cls._base() + f"/delete/{document_id}"
             res = requests.delete(url, timeout=30)
             if not res.ok:
                 print("Failed calling delete API on FastAPI:", res.text)

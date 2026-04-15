@@ -56,8 +56,21 @@ def upload_page(request):
         content = DocumentExtractionService.extract_text(file, file.name.lower())
 
         # send to fastapi which handles the pinecone embedding side
-        pinecone_id, fastapi_text = FastAPIClient.upload_document(file)
-        
+        # note: this may take up to 60s on Render free tier (cold start)
+        try:
+            pinecone_id, fastapi_text = FastAPIClient.upload_document(file)
+        except Exception as e:
+            print("FastAPI upload exception:", e)
+            pinecone_id, fastapi_text = "", ""
+
+        if not pinecone_id:
+            return render(request, "upload.html", {
+                "error": (
+                    "The upload service is starting up (Render cold start). "
+                    "Please wait 30 seconds and try again."
+                )
+            })
+
         if fastapi_text and fastapi_text.strip():
             content = fastapi_text
         elif not content:
@@ -69,7 +82,7 @@ def upload_page(request):
             content=content,
             pinecone_id=pinecone_id
         )
-        print("Saved to Django DB, id:", doc.id, "content length:", len(content))
+        print("Saved to Django DB, id:", doc.id, "content length:", len(content or ""))
         return redirect("documents")
 
     return render(request, "upload.html")
@@ -85,8 +98,12 @@ def document_list(request):
 def delete_document(request, id):
     doc = get_object_or_404(Document, id=id, user=request.user)
 
+    # try to remove from Pinecone — if FastAPI is down, still delete from DB
     if doc.pinecone_id:
-        FastAPIClient.delete_document(doc.pinecone_id)
+        try:
+            FastAPIClient.delete_document(doc.pinecone_id)
+        except Exception as e:
+            print("Pinecone delete failed (continuing with DB delete):", e)
 
     try:
         invalidate_by_document(str(doc.pinecone_id), user_id=request.user.id)
