@@ -81,9 +81,12 @@ def upload_page(request):
                 from chat.services.fastapi_client import FastAPIClient
 
                 file_like = io.BytesIO(raw_bytes)
-                file_like.name = fname
+                file_like.name = fname  # belt-and-suspenders: also set attribute
 
-                pinecone_id, fastapi_text = FastAPIClient.upload_document(file_like)
+                print(f"[embed] Starting upload for doc #{doc_id}, file={fname!r}")
+                pinecone_id, fastapi_text = FastAPIClient.upload_document(
+                    file_like, filename=fname  # explicit filename so FastAPI knows the type
+                )
 
                 doc_obj = Doc.objects.get(id=doc_id)
                 if pinecone_id:

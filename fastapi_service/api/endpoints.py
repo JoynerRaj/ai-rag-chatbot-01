@@ -18,10 +18,12 @@ async def upload_file(file: UploadFile = File(...)):
     text = DocumentService.extract_text(file, content)
 
     if not text:
-        return {"error": "Unsupported file type"}
+        print(f"[FastAPI upload] No text extracted from file: {file.filename!r}")
+        return {"error": "Unsupported file type or empty document"}
 
     chunks = DocumentService.split_text(text)
     document_id = str(uuid.uuid4())
+    print(f"[FastAPI upload] file={file.filename!r}  chunks={len(chunks)}  doc_id={document_id}")
 
     vectors = []
     for chunk in chunks:
@@ -35,7 +37,13 @@ async def upload_file(file: UploadFile = File(...)):
             }
         })
 
-    VectorDBService.upsert_vectors(vectors)
+    try:
+        VectorDBService.upsert_vectors(vectors)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[FastAPI upload] Pinecone upsert FAILED: {e}")
+        return {"error": f"Vector DB error: {str(e)}"}
 
     return {
         "message": "Stored in Pinecone successfully",

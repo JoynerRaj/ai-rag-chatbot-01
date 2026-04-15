@@ -31,20 +31,39 @@ class FastAPIClient:
         return False
 
     @classmethod
-    def upload_document(cls, file) -> tuple[str, str]:
+    def upload_document(cls, file, filename: str = None) -> tuple[str, str]:
         """Uploads document to FastAPI for Pinecone embedding.
-        Wakes up the Render service first if it's cold-starting.
+        
+        file     : file-like object (Django upload OR io.BytesIO)
+        filename : explicit filename — required when file is a BytesIO with no name attr
         """
         cls.wake_up()  # ensure FastAPI is alive before the real upload
         url = cls.get_base_url()
         try:
+            # resolve filename from argument → file.name attr → fallback
+            fname = filename or getattr(file, 'name', None) or "upload.bin"
             file.seek(0)
-            res = requests.post(url, files={"file": file}, timeout=120)
+
+            # Use explicit tuple (filename, fileobj, content-type) so FastAPI always
+            # gets the original filename — plain BytesIO doesn't carry it reliably
+            res = requests.post(
+                url,
+                files={"file": (fname, file, "application/octet-stream")},
+                timeout=120,
+            )
+
+            print(f"[upload_document] status={res.status_code}  fname={fname!r}")
+
             if res.status_code == 200:
                 res_json = res.json()
+                if "error" in res_json:
+                    print(f"[upload_document] FastAPI error: {res_json['error']}")
+                    return "", ""
                 return res_json.get("document_id", ""), res_json.get("text", "")
+            else:
+                print(f"[upload_document] non-200 response: {res.text[:200]}")
         except Exception as e:
-            print("FastAPI upload failed:", e)
+            print(f"[upload_document] exception: {e}")
         return "", ""
 
     @classmethod
