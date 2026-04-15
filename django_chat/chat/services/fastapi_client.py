@@ -5,6 +5,9 @@ import time
 class FastAPIClient:
     @staticmethod
     def get_base_url():
+        # FASTAPI_URL must be set in Render env vars for Django service:
+        #   https://ai-rag-chatbot-01.onrender.com/upload
+        # For local Docker Compose the internal name is used automatically.
         return os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
 
     @classmethod
