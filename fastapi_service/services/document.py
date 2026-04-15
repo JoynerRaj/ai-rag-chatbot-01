@@ -25,9 +25,17 @@ class DocumentService:
         return None
 
     @staticmethod
-    def split_text(text: str, chunk_size: int = 30) -> list[str]:
+    def split_text(text: str, chunk_size: int = 200, overlap: int = 30) -> list[str]:
+        """Split text into overlapping chunks for better semantic search coverage.
+        
+        chunk_size: number of words per chunk (200 gives ~300 tokens, good for embeddings)
+        overlap: words shared between consecutive chunks to avoid losing context at boundaries
+        """
         words = text.split()
         chunks = []
-        for i in range(0, len(words), chunk_size):
-            chunks.append(" ".join(words[i:i+chunk_size]))
+        step = chunk_size - overlap
+        for i in range(0, len(words), step):
+            chunk = " ".join(words[i:i + chunk_size])
+            if chunk.strip():
+                chunks.append(chunk)
         return chunks

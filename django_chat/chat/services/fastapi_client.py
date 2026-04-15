@@ -25,7 +25,7 @@ class FastAPIClient:
         """Searches documents via FastAPI Pinecone vector DB."""
         try:
             url = cls.get_base_url().replace("/upload", "") + "/search"
-            payload = {"query": query, "top_k": 5}
+            payload = {"query": query, "top_k": 8}  # fetch more, we'll filter by score
             if document_id and str(document_id).strip():
                 payload["document_id"] = document_id
 
@@ -37,7 +37,15 @@ class FastAPIClient:
             if not results:
                 return "No relevant information found in the uploaded documents."
 
-            chunks = "\n---\n".join([item["text"] for item in results])
+            # only keep chunks with a meaningful similarity score (0.45+)
+            # lower than this usually means the document doesn't actually cover the topic
+            SCORE_THRESHOLD = 0.45
+            relevant = [item for item in results if item.get("score", 0) >= SCORE_THRESHOLD]
+
+            if not relevant:
+                return "No sufficiently relevant content found in the uploaded documents for this query."
+
+            chunks = "\n---\n".join([item["text"] for item in relevant])
             return f"Relevant document excerpts:\n{chunks}"
         except Exception as e:
             return f"[RAG search error: {str(e)}]"
