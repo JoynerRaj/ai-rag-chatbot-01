@@ -6,6 +6,7 @@ import io
 class DocumentService:
     @staticmethod
     def extract_text(file: UploadFile, content: bytes) -> str | None:
+        """Pull raw text out of a .txt, .pdf, or .docx file."""
         filename = file.filename.lower()
 
         if filename.endswith(".txt"):
@@ -22,14 +23,17 @@ class DocumentService:
             doc = docx.Document(io.BytesIO(content))
             return "\n".join([para.text for para in doc.paragraphs])
 
+        # unsupported type
         return None
 
     @staticmethod
     def split_text(text: str, chunk_size: int = 200, overlap: int = 30) -> list[str]:
-        """Split text into overlapping chunks for better semantic search coverage.
-        
-        chunk_size: number of words per chunk (200 gives ~300 tokens, good for embeddings)
-        overlap: words shared between consecutive chunks to avoid losing context at boundaries
+        """
+        Break the text into overlapping word chunks before embedding.
+
+        chunk_size=200 gives roughly 300 tokens per chunk, which works well
+        with the sentence-transformer model. The overlap stops context from
+        being cut off at chunk boundaries.
         """
         words = text.split()
         chunks = []

@@ -1,12 +1,9 @@
-# semantic cache - stores question/answer pairs in redis so we don't hit gemini
-# for the same question twice. uses embeddings + cosine similarity so even slightly
-# rephrased questions can still get a cache hit instead of calling the api again.
+# we store question/answer pairs in redis so we don't waste Gemini API calls
+# for the same question asked twice. uses cosine similarity on embeddings so
+# even if someone rephrases slightly, we still get a cache hit.
 #
-# keys look like:  chat:emb:{user_id}:{uuid}
-# each entry has:  query, answer, document_id, user_id, embedding
-#
-# cache is scoped per user - user A never sees user B's cached responses
-# only answers that came from actual document search get cached (not greetings etc.)
+# each key looks like:  chat:emb:{user_id}:{uuid}
+# cache is per-user - you only ever see your own cached answers
 
 import json
 import math
@@ -15,23 +12,22 @@ import os
 
 from .redis_client import redis_client
 
-# anything above 0.70 similarity we treat as the same question
+# if similarity is above 70% we consider it the same question
 SIMILARITY_THRESHOLD = 0.70
 
-# user_id goes in the key so no two users share the same cache space
+# user_id in the key keeps each person's cache separate
 EMB_KEY_PREFIX = "chat:emb:"
 
-# answers expire after 1 hour
+# cache entries live for 1 hour, then auto-expire
 EMB_TTL = 3600
 
 
 def _build_key_prefix(user_id):
-    # build a key prefix that includes the user id so lookups stay isolated
     return f"{EMB_KEY_PREFIX}{user_id}:"
 
 
 def _get_embedding(text: str) -> list:
-    """Call the FastAPI /embed endpoint to get an embedding vector for the text."""
+    """Ask the FastAPI /embed endpoint for a vector representation of the text."""
     try:
         import requests
         fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
@@ -41,15 +37,15 @@ def _get_embedding(text: str) -> list:
         if res.ok:
             return res.json().get("embedding")
         else:
-            print(f"[SemanticCache] FastAPI /embed returned {res.status_code}")
+            print(f"[SemanticCache] /embed returned {res.status_code}")
             return None
     except Exception as e:
-        print(f"[SemanticCache] Remote embedding failed: {e}")
+        print(f"[SemanticCache] Embedding request failed: {e}")
         return None
 
 
 def _cosine_similarity(a: list, b: list) -> float:
-    """Pure-Python cosine similarity without numpy."""
+    """Standard cosine similarity - no numpy needed."""
     dot   = sum(x * y for x, y in zip(a, b))
     mag_a = math.sqrt(sum(x * x for x in a))
     mag_b = math.sqrt(sum(x * x for x in b))
@@ -60,13 +56,12 @@ def _cosine_similarity(a: list, b: list) -> float:
 
 def semantic_cache_get(query: str, document_id: str, user_id=None):
     """
-    Look for a semantically similar answer in this user's cache.
-    Returns the cached answer string, or None if nothing matches well enough.
+    Check if we already have a good answer for this question.
+    Returns the cached answer if similarity is high enough, otherwise None.
     """
     if redis_client is None:
         return None
 
-    # need a user to know which cache namespace to look in
     if user_id is None:
         return None
 
@@ -89,7 +84,7 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
             except Exception:
                 continue
 
-            # skip entries from a different document, they won't match anyway
+            # different document means different content, skip it
             if entry.get("document_id") != document_id:
                 continue
 
@@ -103,10 +98,10 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
                 best_answer = entry.get("answer")
 
         if best_score >= SIMILARITY_THRESHOLD and best_answer:
-            print(f"[SemanticCache] Cache HIT (similarity={best_score:.3f}) user={user_id}")
+            print(f"[SemanticCache] HIT (score={best_score:.3f}) user={user_id}")
             return best_answer
 
-        print(f"[SemanticCache] Cache MISS (best={best_score:.3f}) user={user_id}")
+        print(f"[SemanticCache] MISS (best={best_score:.3f}) user={user_id}")
         return None
 
     except Exception as e:
@@ -116,13 +111,12 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
 
 def semantic_cache_set(query: str, answer: str, document_id: str, user_id=None) -> None:
     """
-    Store a question/answer pair in the semantic cache, scoped to this user.
-    Only call this when the answer actually came from the document search tool.
+    Save a question/answer pair to the cache for this user.
+    Only call this when the answer actually came from the documents.
     """
     if redis_client is None or not answer:
         return
 
-    # can't scope without a user_id so just bail out
     if user_id is None:
         return
 
@@ -141,15 +135,14 @@ def semantic_cache_set(query: str, answer: str, document_id: str, user_id=None) 
         prefix = _build_key_prefix(user_id)
         key = f"{prefix}{uuid.uuid4().hex}"
         redis_client.set(key, entry, ex=EMB_TTL)
-        print(f"[SemanticCache] Stored key={key!r} query={query!r} user={user_id}")
+        print(f"[SemanticCache] Saved key={key!r} query={query!r} user={user_id}")
     except Exception as e:
         print(f"[SemanticCache] Write error: {e}")
 
 
 def get_user_cache_entries(user_id) -> list:
     """
-    Fetch all cache entries belonging to a specific user.
-    Used by the cache dashboard view.
+    Pull all cached entries for one user - used by the cache dashboard page.
     """
     if redis_client is None or user_id is None:
         return []
@@ -164,7 +157,7 @@ def get_user_cache_entries(user_id) -> list:
             if not raw:
                 continue
             try:
-                entry = json.loads(raw)
+                entry   = json.loads(raw)
                 query   = entry.get("query", "")
                 answer  = entry.get("answer", "")
                 doc_id  = entry.get("document_id") or "(all documents)"
@@ -179,13 +172,13 @@ def get_user_cache_entries(user_id) -> list:
             except Exception:
                 pass
     except Exception as e:
-        print(f"[SemanticCache] Error reading cache dashboard entries: {e}")
+        print(f"[SemanticCache] Dashboard read error: {e}")
 
     return entries
 
 
 def clear_user_cache(user_id) -> int:
-    """Delete all cached entries for a specific user only."""
+    """Wipe all cached entries for a single user."""
     if redis_client is None or user_id is None:
         return 0
     try:
@@ -202,15 +195,15 @@ def clear_user_cache(user_id) -> int:
 
 def invalidate_by_document(document_id: str, user_id=None) -> int:
     """
-    Remove cached entries tied to a specific document.
-    If user_id is given, only clears that user's entries.
+    Remove any cached entries that belong to a specific document.
+    Pass user_id to limit this to one person's cache, or leave it None to clear all.
     """
     if redis_client is None:
         return 0
 
     deleted = 0
     try:
-        # narrow to just this user's namespace if we have their id, otherwise scan all
+        # narrow it down to just this user if we know who they are
         prefix = _build_key_prefix(user_id) if user_id else EMB_KEY_PREFIX
         keys = redis_client.keys(f"{prefix}*")
         to_delete = []
@@ -228,7 +221,7 @@ def invalidate_by_document(document_id: str, user_id=None) -> int:
         if to_delete:
             redis_client.delete(*to_delete)
             deleted = len(to_delete)
-            print(f"[SemanticCache] Invalidated {deleted} entries for document={document_id!r} user={user_id}")
+            print(f"[SemanticCache] Removed {deleted} entries for doc={document_id!r} user={user_id}")
 
     except Exception as e:
         print(f"[SemanticCache] Invalidation error: {e}")

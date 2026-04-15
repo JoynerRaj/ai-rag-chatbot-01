@@ -18,13 +18,14 @@ async def upload_file(file: UploadFile = File(...)):
     text = DocumentService.extract_text(file, content)
 
     if not text:
-        print(f"[FastAPI upload] No text extracted from file: {file.filename!r}")
+        print(f"[upload] no text from file: {file.filename!r}")
         return {"error": "Unsupported file type or empty document"}
 
     chunks = DocumentService.split_text(text)
     document_id = str(uuid.uuid4())
-    print(f"[FastAPI upload] file={file.filename!r}  chunks={len(chunks)}  doc_id={document_id}")
+    print(f"[upload] {file.filename!r}  chunks={len(chunks)}  id={document_id}")
 
+    # build one vector per chunk with the text and doc ID in the metadata
     vectors = []
     for chunk in chunks:
         vectors.append({
@@ -42,7 +43,7 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"[FastAPI upload] Pinecone upsert FAILED: {e}")
+        print(f"[upload] Pinecone upsert failed: {e}")
         return {"error": f"Vector DB error: {str(e)}"}
 
     return {
@@ -78,7 +79,7 @@ def search_pinecone(req: SearchQuery):
                 "text": text_context
             })
 
-        print(f"[search] returning {len(matches)} match(es)")
+        print(f"[search] {len(matches)} result(s) returned")
         return matches
     except Exception as e:
         import traceback
@@ -97,6 +98,7 @@ def delete_document(document_id: str):
 
 @router.post("/embed")
 def get_embedding(req: EmbedQuery):
+    """Used by the semantic cache to get an embedding for a query string."""
     try:
         return {"embedding": EmbeddingService.embed_text(req.text)}
     except Exception as e:

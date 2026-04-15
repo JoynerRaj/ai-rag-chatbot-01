@@ -6,7 +6,7 @@ from chat.services.fastapi_client import FastAPIClient
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
 from chat.models import Document
 
-# greetings and small talk that definitely don't need a document search
+# short messages that clearly don't need a document search
 CASUAL_PHRASES = {
     "hi", "hello", "hey", "hii", "helo", "good morning", "good evening",
     "good afternoon", "how are you", "what's up", "whats up", "sup",
@@ -15,7 +15,7 @@ CASUAL_PHRASES = {
 }
 
 def _is_casual_message(text: str) -> bool:
-    """Returns True only for clear greetings/small talk with no factual content."""
+    """True only for obvious greetings and small talk, not actual questions."""
     cleaned = text.strip().lower().rstrip("!?.,:;")
     return cleaned in CASUAL_PHRASES
 
@@ -25,9 +25,9 @@ class AIAgentService:
     def process_query(query: str, document_id: str, user, chat_id: int, chat_history: list = None) -> str:
         try:
             user_id = user.id if (user and user.is_authenticated) else None
-            print(f"[{chat_id}] process_query: {query!r}  doc_id={document_id!r}  user_id={user_id}")
+            print(f"[{chat_id}] query={query!r}  doc_id={document_id!r}  user={user_id}")
 
-            # only count documents that are fully embedded - pending ones have no Pinecone data
+            # make sure the user actually has documents that are ready in Pinecone
             if user and user.is_authenticated:
                 has_docs = Document.objects.filter(user=user, embedding_status="done").exists()
             else:
@@ -40,75 +40,69 @@ class AIAgentService:
                     "If you just uploaded one, wait a moment for embedding to finish, then try again."
                 )
 
-            # skip cache for small talk - not worth storing
+            # don't bother checking cache for hi/thanks, waste of time
             if not _is_casual_message(query):
                 cached = semantic_cache_get(query, document_id, user_id=user_id)
                 if cached:
-                    print(f"[{chat_id}] Semantic Cache HIT")
+                    print(f"[{chat_id}] Cache HIT")
                     return cached
 
-            # ---------------------------------------------------------------
-            # PRE-FETCH: search Pinecone directly before sending to Gemini.
-            # This guarantees the document content is in the prompt whether
-            # Gemini decides to call the tool or not.
-            # ---------------------------------------------------------------
+            # search Pinecone before calling Gemini so the answer is always
+            # grounded in the actual uploaded documents, not just general knowledge
             rag_context = ""
             if not _is_casual_message(query):
                 try:
                     rag_context = FastAPIClient.search_documents(query, document_id or "")
-                    print(f"[{chat_id}] Pre-fetch RAG: {len(rag_context)} chars")
+                    print(f"[{chat_id}] RAG context: {len(rag_context)} chars")
                 except Exception as e:
-                    print(f"[{chat_id}] Pre-fetch RAG failed: {e}")
+                    print(f"[{chat_id}] RAG search failed: {e}")
 
             client = genai.Client(
                 api_key=os.getenv("GEMINI_API_KEY"),
                 http_options={"api_version": "v1alpha"}
             )
 
-            # system prompt depends on whether we have document content
-            if rag_context and "No relevant" not in rag_context and "No sufficiently" not in rag_context:
+            has_real_context = rag_context and "No relevant" not in rag_context and "No sufficiently" not in rag_context
+
+            if has_real_context:
+                # tell Gemini to answer from the document, not from its training data
                 system_instruction = (
                     "You are a helpful AI assistant. You have been given content from the user's uploaded documents. "
-                    "You also have the full conversation history for this session - use it to remember anything the user "
-                    "has told you (their name, previous questions, preferences). "
-                    "IMPORTANT: Base your answer PRIMARILY on the document content provided below. "
-                    "Do NOT say you could not find information in the documents - the content is right there. "
-                    "If the document content is relevant to the question, use it directly to answer. "
-                    "Only supplement with general knowledge if the documents truly do not cover the topic."
+                    "You also have the conversation history for this session - use it to remember the user's name, "
+                    "previous questions, and anything else they have shared. "
+                    "Base your answer on the document content provided. "
+                    "Do not say you couldn't find information - the content is there. Use it."
                 )
             else:
+                # no great document match, just be a normal assistant
                 system_instruction = (
-                    "You are a helpful AI assistant with access to a knowledge base. "
-                    "You have the full conversation history for this session - use it to remember anything the user "
-                    "has shared (name, topics, preferences). "
-                    "For factual questions, try to answer from the uploaded documents if possible. "
-                    "If you are making small talk or answering a general question, just respond naturally."
+                    "You are a helpful AI assistant. "
+                    "You have the conversation history for this session - remember anything the user has told you. "
+                    "Answer the user's question as helpfully as you can."
                 )
 
-            # build conversation history for context
+            # build conversation so Gemini has context from earlier in the chat
             contents = []
             if chat_history:
                 for past in chat_history:
                     contents.append(types.Content(role="user", parts=[types.Part(text=past["question"])]))
                     contents.append(types.Content(role="model", parts=[types.Part(text=past["answer"])]))
 
-            # build the user message - attach document context inline if we have it
-            if rag_context and "No relevant" not in rag_context and "No sufficiently" not in rag_context:
+            # attach the RAG context directly to the user's message so Gemini can't miss it
+            if has_real_context:
                 user_message = (
                     f"Here is the relevant content from the uploaded documents:\n\n"
                     f"{rag_context}\n\n"
-                    f"Based on the above document content, please answer this question:\n{query}"
+                    f"Answer this question using the document content above:\n{query}"
                 )
             else:
                 user_message = query
 
             contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
 
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction,
-            )
+            config = types.GenerateContentConfig(system_instruction=system_instruction)
 
-            # try gemini-2.5-flash first, fall back to 2.0-flash if empty output
+            # try 2.5-flash first, fall back to 2.0 if it gives an empty response
             MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.0-flash"]
             answer = ""
 
@@ -122,7 +116,7 @@ class AIAgentService:
 
                     candidate = response.candidates[0]
                     if not candidate.content or not candidate.content.parts:
-                        print(f"[{chat_id}] {model_name} returned empty parts, trying next model...")
+                        print(f"[{chat_id}] {model_name} came back empty, trying next...")
                         continue
 
                     answer = "".join([
@@ -132,21 +126,20 @@ class AIAgentService:
                     ]).strip()
 
                     if answer:
-                        print(f"[{chat_id}] [{model_name}] Answer: {answer[:80]!r}")
+                        print(f"[{chat_id}] [{model_name}] {answer[:80]!r}")
                         break
                     else:
-                        print(f"[{chat_id}] {model_name} gave no text, trying next model...")
+                        print(f"[{chat_id}] {model_name} returned no text, trying next...")
 
                 except Exception as model_err:
                     err_str = str(model_err)
                     if "must contain either output text or tool calls" in err_str or "empty" in err_str.lower():
-                        print(f"[{chat_id}] {model_name} empty-output error, falling back: {model_err}")
+                        print(f"[{chat_id}] {model_name} empty-output error: {model_err}")
                         continue
                     raise
 
-            # cache successful answers that used document content
-            doc_was_used = rag_context and "No relevant" not in rag_context and "No sufficiently" not in rag_context
-            if doc_was_used and answer and user_id is not None:
+            # save to cache only when the answer came from our documents
+            if has_real_context and answer and user_id is not None:
                 semantic_cache_set(query, answer, document_id, user_id=user_id)
 
             return answer if answer else "I'm sorry, I couldn't generate a response. Please try again."
@@ -163,4 +156,4 @@ class AIAgentService:
             elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
                 return "There was an issue processing your request. Please try rephrasing your question."
             else:
-                return "An unexpected error occurred while generating a response. Please try again later."
+                return "An unexpected error occurred. Please try again."

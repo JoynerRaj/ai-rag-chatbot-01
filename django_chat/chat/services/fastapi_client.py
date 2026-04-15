@@ -6,50 +6,46 @@ import time
 class FastAPIClient:
     @staticmethod
     def get_base_url():
-        # FASTAPI_URL must be set in Render env vars for Django service
+        # set FASTAPI_URL in Render env vars, e.g. https://ai-rag-chatbot-01.onrender.com/upload
         return os.environ.get("FASTAPI_URL", "http://fastapi:8000/upload")
 
     @classmethod
     def _base(cls):
-        # strip /upload to get the root URL
+        # strip /upload to get the root URL for other endpoints
         return cls.get_base_url().replace("/upload", "")
 
     @classmethod
     def wake_up(cls):
-        """Ping FastAPI root to see if it's alive. Used for health checks only."""
+        """Ping FastAPI to see if it's awake. Mainly used in health checks."""
         url = cls._base() + "/"
         for attempt in range(6):
             try:
                 res = requests.get(url, timeout=8)
                 if res.ok:
-                    print(f"FastAPI awake after {attempt + 1} attempt(s)")
+                    print(f"FastAPI is up after {attempt + 1} attempt(s)")
                     return True
             except Exception as e:
-                print(f"FastAPI wake attempt {attempt + 1} failed: {e}")
+                print(f"Wake attempt {attempt + 1} failed: {e}")
             time.sleep(3)
-        print("FastAPI did not wake in time.")
+        print("FastAPI didn't wake in time")
         return False
 
     @classmethod
     def upload_document(cls, file, filename: str = None) -> tuple[str, str]:
-        """Send a document to FastAPI to be embedded into Pinecone.
-
-        This is always called from a background thread in views.py so it is
-        fine to block and retry here without worrying about Render timeouts.
-
-        file     : file-like object (BytesIO)
-        filename : original filename so FastAPI knows the file type
+        """
+        Send the document bytes to FastAPI so it can embed and store in Pinecone.
+        Called from a background thread so we can safely wait/retry here.
         """
         url = cls.get_base_url()
         fname = filename or getattr(file, 'name', None) or "upload.bin"
 
-        # try up to 3 times - FastAPI on Render free tier can be slow to cold start
+        # try 3 times - FastAPI on Render free tier can take a minute to cold start
         MAX_ATTEMPTS = 3
         for attempt in range(MAX_ATTEMPTS):
             if attempt > 0:
-                wait = 30
-                print(f"[upload_document] waiting {wait}s before retry (attempt {attempt + 1})...")
-                time.sleep(wait)
+                # give FastAPI some time to finish waking up before we retry
+                print(f"[upload_document] waiting 30s before retry (attempt {attempt + 1})...")
+                time.sleep(30)
 
             try:
                 file.seek(0)
@@ -60,21 +56,21 @@ class FastAPIClient:
                     timeout=90,
                 )
 
-                print(f"[upload_document] attempt {attempt + 1} - status={res.status_code}  fname={fname!r}")
+                print(f"[upload_document] attempt {attempt + 1} - status={res.status_code}  file={fname!r}")
 
                 if res.status_code == 200:
                     res_json = res.json()
                     if "error" in res_json:
-                        print(f"[upload_document] FastAPI error: {res_json['error']}")
+                        print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
                         return "", ""
                     return res_json.get("document_id", ""), res_json.get("text", "")
 
-                # 502/503/504 usually means FastAPI is still waking up, retry
+                # 502/503/504 usually just means FastAPI is still starting, try again
                 if res.status_code in (502, 503, 504):
-                    print(f"[upload_document] got {res.status_code}, will retry...")
+                    print(f"[upload_document] got {res.status_code}, retrying...")
                     continue
 
-                print(f"[upload_document] unexpected {res.status_code}: {res.text[:200]}")
+                print(f"[upload_document] unexpected status {res.status_code}: {res.text[:200]}")
 
             except requests.exceptions.Timeout:
                 print(f"[upload_document] attempt {attempt + 1} timed out, retrying...")
@@ -88,7 +84,7 @@ class FastAPIClient:
 
     @classmethod
     def search_documents(cls, query: str, document_id: str = None) -> str:
-        """Search the Pinecone vector DB via FastAPI."""
+        """Search Pinecone through FastAPI and return the best matching text chunks."""
         try:
             url = cls._base() + "/search"
             payload = {"query": query, "top_k": 8}
@@ -104,18 +100,18 @@ class FastAPIClient:
                 print(f"[search_documents] Pinecone returned 0 results for: {query!r}")
                 return "No relevant information found in the uploaded documents."
 
-            # log the scores so we can see what pinecone actually returned
+            # log all scores so we can see what Pinecone actually matched
             for r in results:
                 print(f"[search_documents] score={r.get('score', 0):.3f}  text={r.get('text', '')[:60]!r}")
 
-            # 0.30 threshold - lower than before to handle short queries like 'what is ai'
-            # if scores are still too low, check that the document embedded correctly
+            # 0.30 is low enough to catch short queries like "what is ai"
+            # if everything still scores below this, the document probably doesn't cover the topic
             SCORE_THRESHOLD = 0.30
             relevant = [item for item in results if item.get("score", 0) >= SCORE_THRESHOLD]
 
             if not relevant:
                 scores = [round(r.get('score', 0), 3) for r in results]
-                print(f"[search_documents] All scores below threshold {SCORE_THRESHOLD}: {scores}")
+                print(f"[search_documents] nothing above threshold {SCORE_THRESHOLD}: {scores}")
                 return "No sufficiently relevant content found in the uploaded documents for this query."
 
             chunks = "\n---\n".join([item["text"] for item in relevant])
@@ -125,11 +121,11 @@ class FastAPIClient:
 
     @classmethod
     def delete_document(cls, document_id: str):
-        """Delete a document from Pinecone via FastAPI."""
+        """Tell FastAPI to remove a document from Pinecone."""
         try:
             url = cls._base() + f"/delete/{document_id}"
             res = requests.delete(url, timeout=30)
             if not res.ok:
-                print("Failed calling delete API on FastAPI:", res.text)
+                print("Pinecone delete failed:", res.text)
         except Exception as e:
             print("Pinecone delete error:", e)

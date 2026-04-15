@@ -7,11 +7,12 @@ from chat.services.ai_agent import AIAgentService
 class ChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
-        print("✅ WebSocket CONNECTED")
+        print("WebSocket connected")
         await self.accept()
 
         self.user = self.scope.get("user", None)
 
+        # pull chat_id from the query string so we know which session this is
         query_string = self.scope["query_string"].decode()
         chat_id = None
         if "chat_id=" in query_string:
@@ -21,6 +22,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         self.chat_id = int(chat_id) if chat_id else None
 
+        # if opening an existing chat, send the message history down so the UI can render it
         if self.chat_id:
             history = await sync_to_async(list)(
                 ChatHistory.objects.filter(session_id=self.chat_id).order_by("created_at")
@@ -36,6 +38,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             data = json.loads(text_data)
 
+            # just a keepalive ping from the frontend, nothing to do
             if data.get("type") == "ping":
                 return
 
@@ -46,17 +49,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 await self.send(json.dumps({"response": "Please enter a valid question."}))
                 return
 
-            # grab the last 10 messages - newest first, then reverse so order makes sense for gemini
+            # grab the last 10 messages for context - newest first, then flip back to oldest-first
             chat_history = []
             if self.chat_id:
                 history_qs = await sync_to_async(list)(
                     ChatHistory.objects.filter(session_id=self.chat_id).order_by("-created_at")[:10]
                 )
-                # flip it back to oldest-first so the conversation reads naturally
                 history_qs = list(reversed(history_qs))
                 chat_history = [{"question": h.question, "answer": h.answer} for h in history_qs]
 
-            # send the question + history off to the AI and wait for response
             answer = await sync_to_async(AIAgentService.process_query, thread_sensitive=False)(
                 query=query,
                 document_id=document_id,
@@ -65,7 +66,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 chat_history=chat_history
             )
 
-            # store the question and answer so we can show history when the user reopens this chat
+            # save the exchange so history loads correctly when the chat is reopened
             if self.chat_id:
                 await sync_to_async(ChatHistory.objects.create)(
                     session_id=self.chat_id,
@@ -86,5 +87,5 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"[WebSocket] Unhandled error: {e}")
             await self.send(json.dumps({
-                "response": "Something went wrong while processing your message. Please try again."
+                "response": "Something went wrong. Please try again."
             }))

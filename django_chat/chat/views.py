@@ -54,7 +54,7 @@ def upload_page(request):
         if not file:
             return render(request, "upload.html", {"error": "No file selected"})
 
-        # read the file bytes and extract text right here before anything async happens
+        # read the bytes now before any async work happens so we don't lose the file
         file_bytes = file.read()
         file_name = file.name.lower()
         content = DocumentExtractionService.extract_text_from_bytes(file_bytes, file_name) or ""
@@ -64,7 +64,8 @@ def upload_page(request):
                 "error": "Could not read any text from this file. Make sure it is a valid PDF, DOCX, or TXT."
             })
 
-        # save to DB straight away with status pending - user gets redirected immediately
+        # save straight away with pending status - user gets redirected immediately
+        # the actual Pinecone embedding happens in the thread below
         doc = Document.objects.create(
             user=request.user,
             title=title,
@@ -72,10 +73,10 @@ def upload_page(request):
             pinecone_id=None,
             embedding_status=Document.EMBEDDING_PENDING,
         )
-        print(f"[upload] Doc #{doc.id} saved with pending status, starting background embed...")
+        print(f"[upload] Doc #{doc.id} saved, starting background embedding...")
 
-        # kick off pinecone embedding in a background thread so the HTTP response
-        # finishes quickly and does not hit Render's 30-second request timeout
+        # embedding in a background thread means the HTTP response goes back fast
+        # and Render's 30s request timeout never gets triggered
         def embed_in_background(doc_id, raw_bytes, original_filename):
             try:
                 file_like = io.BytesIO(raw_bytes)
@@ -88,13 +89,13 @@ def upload_page(request):
                     doc_obj.embedding_status = Document.EMBEDDING_DONE
                     if fastapi_text and fastapi_text.strip():
                         doc_obj.content = fastapi_text
-                    print(f"[upload] Doc #{doc_id} embedded OK - pinecone_id={pinecone_id!r}")
+                    print(f"[upload] Doc #{doc_id} embedded - pinecone_id={pinecone_id!r}")
                 else:
                     doc_obj.embedding_status = Document.EMBEDDING_FAILED
-                    print(f"[upload] Doc #{doc_id} embedding failed after all retries")
+                    print(f"[upload] Doc #{doc_id} embedding failed after retries")
                 doc_obj.save()
             except Exception as e:
-                print(f"[upload] background embed error for doc #{doc_id}: {e}")
+                print(f"[upload] background embed crashed for doc #{doc_id}: {e}")
 
         t = threading.Thread(
             target=embed_in_background,
