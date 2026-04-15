@@ -35,11 +35,19 @@
   .doc-card:hover{border-color:var(--accent);transform:translateY(-2px)}
   .doc-icon{font-size:32px;margin-bottom:12px}
   .doc-name{font-size:15px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .doc-id{font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:16px}
+  .doc-id{font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:10px}
   .doc-actions{display:flex;gap:8px}
   .btn-sm{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:500;font-family:inherit;cursor:pointer;text-decoration:none;transition:all 0.18s;border:1px solid var(--border);background:transparent;color:var(--text-dim)}
   .btn-sm:hover{background:var(--accent-glow);border-color:var(--accent);color:var(--text)}
   .btn-sm.danger:hover{background:rgba(244,63,94,0.12);border-color:var(--red);color:var(--red)}
+
+  /* embedding status badges */
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:0.3px;margin-bottom:10px}
+  .badge-pending{background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:#fbbf24}
+  .badge-done{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);color:#10b981}
+  .badge-failed{background:rgba(244,63,94,0.1);border:1px solid rgba(244,63,94,0.3);color:#f43f5e}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+  .badge-pending{animation:pulse 1.6s ease-in-out infinite}
 </style>
 </head>
 <body>
@@ -74,7 +82,16 @@
         {% else %}📄{% endif %}
       </div>
       <div class="doc-name">{{ doc.title }}</div>
-      <div class="doc-id">ID: {{ doc.pinecone_id|truncatechars:30 }}</div>
+      <div class="doc-id">ID: {{ doc.pinecone_id|default:"—"|truncatechars:30 }}</div>
+
+      {% if doc.embedding_status == "pending" %}
+        <div class="badge badge-pending">⏳ Embedding in background…</div>
+      {% elif doc.embedding_status == "failed" %}
+        <div class="badge badge-failed">❌ Embedding failed — try re-uploading</div>
+      {% else %}
+        <div class="badge badge-done">✅ Ready</div>
+      {% endif %}
+
       <div class="doc-actions">
         <a href="/edit/{{ doc.id }}/" class="btn-sm">✏️ Edit</a>
         <a href="/delete/{{ doc.id }}/"
@@ -96,6 +113,13 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+// Auto-refresh every 5 seconds while any document is still embedding
+if (document.querySelector('.badge-pending')) {
+  setTimeout(() => location.reload(), 5000);
+}
+</script>
 
 </body>
 </html>

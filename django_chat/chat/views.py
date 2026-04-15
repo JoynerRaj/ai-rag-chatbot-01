@@ -46,43 +46,77 @@ def chat_page(request):
 @login_required
 def upload_page(request):
     if request.method == "POST":
-        title = request.POST.get("title")
+        title = request.POST.get("title", "").strip() or "Untitled"
         file = request.FILES.get("file")
 
         if not file:
             return render(request, "upload.html", {"error": "No file selected"})
 
-        # pull the text out of the file before we send it anywhere
-        content = DocumentExtractionService.extract_text(file, file.name.lower())
+        # Read file bytes once — we need them both for local extraction and FastAPI
+        file_bytes = file.read()
+        file_name  = file.name.lower()
 
-        # send to fastapi which handles the pinecone embedding side
-        # note: this may take up to 60s on Render free tier (cold start)
-        try:
-            pinecone_id, fastapi_text = FastAPIClient.upload_document(file)
-        except Exception as e:
-            print("FastAPI upload exception:", e)
-            pinecone_id, fastapi_text = "", ""
+        # Extract text locally (fast — no network call)
+        content = DocumentExtractionService.extract_text_from_bytes(file_bytes, file_name)
+        if not content:
+            content = ""
 
-        if not pinecone_id:
-            return render(request, "upload.html", {
-                "error": (
-                    "The upload service is starting up (Render cold start). "
-                    "Please wait 30 seconds and try again."
-                )
-            })
-
-        if fastapi_text and fastapi_text.strip():
-            content = fastapi_text
-        elif not content:
-            content = fastapi_text  # use fastapi text as a last resort if django side got nothing
-
+        # Save document to DB immediately so the user can continue right away
         doc = Document.objects.create(
             user=request.user,
             title=title,
             content=content,
-            pinecone_id=pinecone_id
+            pinecone_id=None,
+            embedding_status=Document.EMBEDDING_PENDING,
         )
-        print("Saved to Django DB, id:", doc.id, "content length:", len(content or ""))
+        print(f"[upload] Doc #{doc.id} saved instantly, starting background embedding…")
+
+        # --- background embedding thread ---
+        def _embed_in_background(doc_id: int, raw_bytes: bytes, fname: str):
+            """Runs in a daemon thread — embeds the document in Pinecone after save."""
+            import io
+            from django.db import connection
+            try:
+                from chat.models import Document as Doc
+                from chat.services.fastapi_client import FastAPIClient
+
+                file_like = io.BytesIO(raw_bytes)
+                file_like.name = fname
+
+                pinecone_id, fastapi_text = FastAPIClient.upload_document(file_like)
+
+                doc_obj = Doc.objects.get(id=doc_id)
+                if pinecone_id:
+                    if fastapi_text and fastapi_text.strip():
+                        doc_obj.content = fastapi_text
+                    doc_obj.pinecone_id      = pinecone_id
+                    doc_obj.embedding_status = Doc.EMBEDDING_DONE
+                    print(f"[embed] Doc #{doc_id} embedded OK — pinecone_id={pinecone_id}")
+                else:
+                    doc_obj.embedding_status = Doc.EMBEDDING_FAILED
+                    print(f"[embed] Doc #{doc_id} embedding FAILED (FastAPI returned empty)")
+                doc_obj.save()
+            except Exception as exc:
+                import traceback, logging
+                logging.error(f"[embed] Doc #{doc_id} background error: {exc}")
+                traceback.print_exc()
+                try:
+                    from chat.models import Document as Doc
+                    Doc.objects.filter(id=doc_id).update(embedding_status=Doc.EMBEDDING_FAILED)
+                except Exception:
+                    pass
+            finally:
+                connection.close()  # release DB connection from thread
+
+        import threading
+        t = threading.Thread(
+            target=_embed_in_background,
+            args=(doc.id, file_bytes, file.name),
+            daemon=True,
+        )
+        t.start()
+
+        # Redirect immediately — embedding happens in background
         return redirect("documents")
 
     return render(request, "upload.html")

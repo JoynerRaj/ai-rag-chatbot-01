@@ -35,3 +35,33 @@ class DocumentExtractionService:
             
         file.seek(0)
         return content
+
+    @staticmethod
+    def extract_text_from_bytes(raw_bytes: bytes, filename: str) -> str:
+        """Extract text from raw bytes — used when the file has already been read."""
+        content = ""
+        try:
+            if filename.endswith(".txt"):
+                content = raw_bytes.decode("utf-8", errors="ignore")
+
+            elif filename.endswith(".pdf"):
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(raw_bytes))
+                pages_text = []
+                for page in reader.pages:
+                    text = page.extract_text()
+                    if text:
+                        pages_text.append(text)
+                content = "\n".join(pages_text)
+
+            elif filename.endswith(".docx"):
+                with zipfile.ZipFile(io.BytesIO(raw_bytes)) as z:
+                    if "word/document.xml" in z.namelist():
+                        xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+                        content = re.sub(r"<[^>]+>", " ", xml)
+                        content = re.sub(r"\s+", " ", content).strip()
+
+        except Exception as e:
+            print(f"Django-side bytes extraction failed for {filename}:", e)
+
+        return content

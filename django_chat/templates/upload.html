@@ -74,7 +74,7 @@
     <div class="error-box">⚠️ {{ error }}</div>
     {% endif %}
 
-    <div class="info-box">⏱️ <strong>Upload may take 30–60 seconds</strong> if the embedding service is starting up. Please don't close this page after clicking upload.</div>
+    <div class="info-box">⚡ <strong>Instant upload</strong> — your document is saved immediately and AI embedding happens in the background automatically.</div>
 
     <form method="POST" enctype="multipart/form-data" id="uploadForm">
       {% csrf_token %}
@@ -126,34 +126,17 @@ dropZone.addEventListener("drop", e => {
   showFileName(fi);
 });
 
-// Show loading state + progress messages on submit
+// Show loading state on submit
 document.getElementById("uploadForm").addEventListener("submit", () => {
   const btn = document.getElementById("submitBtn");
   const spinner = document.getElementById("spinner");
   const icon = document.getElementById("uploadIcon");
   const label = document.getElementById("submitLabel");
-  const progress = document.getElementById("uploadProgress");
-  const progressText = document.getElementById("progressText");
 
   btn.disabled = true;
   btn.classList.add("uploading");
   icon.style.display = "none";
   label.textContent = "Uploading…";
-  progress.style.display = "block";
-
-  // Update progress message over time so user knows it's still working
-  const messages = [
-    "Waking up embedding service…",
-    "Processing document…",
-    "Generating embeddings…",
-    "Storing in vector database…",
-    "Almost done…"
-  ];
-  let i = 0;
-  const interval = setInterval(() => {
-    i = Math.min(i + 1, messages.length - 1);
-    progressText.textContent = messages[i];
-  }, 12000);
 });
 </script>
 </body>
