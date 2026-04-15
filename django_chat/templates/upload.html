@@ -81,7 +81,9 @@
 
       <div class="field">
         <label class="label" for="title">Document Name</label>
-        <input class="input" type="text" id="title" name="title" placeholder="e.g. Company Policy, Research Paper…" required>
+      <input class="input" type="text" id="title" name="title"
+             placeholder="e.g. Company Policy, Research Paper…"
+             value="{{ prefill_title|default:'' }}" required>
       </div>
 
       <div class="field">

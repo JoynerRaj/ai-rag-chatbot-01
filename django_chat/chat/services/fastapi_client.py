@@ -15,18 +15,18 @@ class FastAPIClient:
     @classmethod
     def wake_up(cls):
         """Ping the FastAPI health endpoint to wake it from Render cold start.
-        Waits up to 40 seconds for the service to come alive.
+        Makes up to 6 quick attempts over ~55 seconds.
         """
         url = cls._base() + "/"
-        for attempt in range(4):
+        for attempt in range(6):
             try:
-                res = requests.get(url, timeout=15)
+                res = requests.get(url, timeout=8)
                 if res.ok:
                     print(f"FastAPI awake after {attempt + 1} attempt(s)")
                     return True
             except Exception as e:
                 print(f"FastAPI wake attempt {attempt + 1} failed: {e}")
-            time.sleep(5)
+            time.sleep(3)
         print("FastAPI did not wake in time.")
         return False
 
