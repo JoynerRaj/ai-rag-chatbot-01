@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = '9ej_vq0nny95h2%bod%zn029*i&js%qd)g3=lt+&!ql=+4at$v'
 
-DEBUG = True
+DEBUG = os.environ.get("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = ["django-rag.onrender.com", "*"]
 
@@ -136,10 +136,8 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "static"),
-]
-
+# no extra static dirs - all static files go through staticfiles app
+# (removing this prevents the W004 warning on Render)
 STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
 # ========================
