@@ -84,4 +84,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }))
 
         except Exception as e:
-            await self.send(json.dumps({"response": "Error: " + str(e)}))
+            print(f"[WebSocket] Unhandled error: {e}")
+            await self.send(json.dumps({
+                "response": "Something went wrong while processing your message. Please try again."
+            }))

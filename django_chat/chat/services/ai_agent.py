@@ -121,59 +121,94 @@ class AIAgentService:
             # then add what the user just asked
             contents.append(types.Content(role="user", parts=[types.Part(text=query)]))
 
+            # try gemini-2.5-flash first, fall back to 2.0-flash if it returns empty output
+            MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.0-flash"]
             MAX_ROUNDS = 3
             tool_was_used = False  # will flip to True if gemini actually calls search_documents
+            answer = ""
 
-            for _ in range(MAX_ROUNDS):
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=contents,
-                    config=config,
-                )
+            for model_name in MODELS_TO_TRY:
+                # reset contents to original state for each model attempt
+                current_contents = list(contents)
+                tool_was_used = False
+                answer = ""
+                success = False
 
-                contents.append(response.candidates[0].content)
-
-                fn_calls = [
-                    part.function_call
-                    for part in response.candidates[0].content.parts
-                    if hasattr(part, "function_call") and part.function_call
-                ]
-
-                if not fn_calls:
-                    break
-
-                tool_response_parts = []
-                for fn_call in fn_calls:
-                    if fn_call.name == "search_documents":
-                        args = dict(fn_call.args)
-                        rag_query = args.get("query", query)
-                        doc_id = args.get("document_id", document_id) or document_id
-
-                        print(f"[{chat_id}] RAG tool called: query={rag_query!r}")
-                        rag_result = FastAPIClient.search_documents(rag_query, doc_id)
-                        print(f"[{chat_id}] RAG result: {len(rag_result)} chars")
-
-                        tool_was_used = True  # gemini searched the docs, this answer is worth caching
-
-                        tool_response_parts.append(
-                            types.Part.from_function_response(
-                                name="search_documents",
-                                response={"result": rag_result}
-                            )
+                try:
+                    for _ in range(MAX_ROUNDS):
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=current_contents,
+                            config=config,
                         )
 
-                contents.append(types.Content(role="tool", parts=tool_response_parts))
+                        candidate = response.candidates[0]
 
-            answer = "".join([part.text for part in response.candidates[0].content.parts if hasattr(part, "text") and part.text])
-            answer = answer.strip()
+                        # Guard: some responses have no content/parts at all
+                        if not candidate.content or not candidate.content.parts:
+                            print(f"[{chat_id}] {model_name} returned empty parts, trying next model...")
+                            break
 
-            print(f"[{chat_id}] Answer: {answer[:80]!r}")
+                        current_contents.append(candidate.content)
+
+                        fn_calls = [
+                            part.function_call
+                            for part in candidate.content.parts
+                            if hasattr(part, "function_call") and part.function_call
+                        ]
+
+                        if not fn_calls:
+                            success = True
+                            break
+
+                        tool_response_parts = []
+                        for fn_call in fn_calls:
+                            if fn_call.name == "search_documents":
+                                args = dict(fn_call.args)
+                                rag_query = args.get("query", query)
+                                doc_id = args.get("document_id", document_id) or document_id
+
+                                print(f"[{chat_id}] RAG tool called: query={rag_query!r}")
+                                rag_result = FastAPIClient.search_documents(rag_query, doc_id)
+                                print(f"[{chat_id}] RAG result: {len(rag_result)} chars")
+
+                                tool_was_used = True  # gemini searched the docs, this answer is worth caching
+
+                                tool_response_parts.append(
+                                    types.Part.from_function_response(
+                                        name="search_documents",
+                                        response={"result": rag_result}
+                                    )
+                                )
+
+                        current_contents.append(types.Content(role="tool", parts=tool_response_parts))
+
+                    if success:
+                        answer = "".join([
+                            part.text
+                            for part in response.candidates[0].content.parts
+                            if hasattr(part, "text") and part.text
+                        ]).strip()
+
+                        if answer:
+                            print(f"[{chat_id}] [{model_name}] Answer: {answer[:80]!r}")
+                            break  # got a good answer, stop trying models
+                        else:
+                            print(f"[{chat_id}] {model_name} returned no text, trying next model...")
+
+                except Exception as model_err:
+                    err_str = str(model_err)
+                    # empty output error is transient - try the next model
+                    if "must contain either output text or tool calls" in err_str or "empty" in err_str.lower():
+                        print(f"[{chat_id}] {model_name} empty-output error, falling back: {model_err}")
+                        continue
+                    raise  # re-raise anything else so the outer handler catches it
 
             # only cache if we actually searched documents - no caching for hello/thanks type replies
             if tool_was_used and answer and user_id is not None:
                 semantic_cache_set(query, answer, document_id, user_id=user_id)
 
-            return answer if answer else "I'm sorry, I couldn't generate a response."
+            return answer if answer else "I'm sorry, I couldn't generate a response. Please try again."
 
         except Exception as e:
             print(f"[{chat_id}] ERROR: {e}")
@@ -181,9 +216,11 @@ class AIAgentService:
             error_msg = str(e)
 
             if "503" in error_msg or "UNAVAILABLE" in error_msg:
-                return "The AI model is currently experiencing high demand. Spikes in demand are usually temporary. Please wait a few moments and try again."
+                return "The AI model is temporarily overloaded. Please wait a few seconds and try again."
             elif "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
                 return "The AI service quota has been exceeded. Please try again later."
+            elif "must contain either output text or tool calls" in error_msg or "empty" in error_msg.lower():
+                return "The AI model returned an empty response. Please rephrase your question and try again."
             elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
                 return "There was an issue processing your request. Please try rephrasing your question."
             else:
