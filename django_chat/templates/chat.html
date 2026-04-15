@@ -307,25 +307,6 @@
 </aside>
 
 <main class="main">
-  <!-- TOPBAR: document selector -->
-  <div class="topbar">
-    <div class="doc-pills">
-      <span class="doc-pills-label">Search in:</span>
-      <label>
-        <input type="radio" name="docPill" value="" checked>
-        <span>All Documents</span>
-      </label>
-      {% for doc in documents %}
-      {% if doc.embedding_status == "done" %}
-      <label>
-        <input type="radio" name="docPill" value="{{ doc.pinecone_id }}">
-        <span>{{ doc.title|truncatechars:22 }}</span>
-      </label>
-      {% endif %}
-      {% endfor %}
-    </div>
-  </div>
-
   <!-- CHAT BOX -->
   <div id="chat" class="chat-box">
     <div class="welcome-state" id="welcomeState">

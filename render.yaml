@@ -13,3 +13,7 @@ services:
 
     # just start the server - everything else is already done in buildCommand
     startCommand: daphne -b 0.0.0.0 -p $PORT django_chat.asgi:application
+
+    # Render uses this endpoint to confirm the service is healthy
+    # /health/ returns a plain 200 OK immediately without any DB/Redis queries
+    healthCheckPath: /health/
