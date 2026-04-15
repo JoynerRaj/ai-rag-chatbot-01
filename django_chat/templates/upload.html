@@ -22,7 +22,8 @@
   .card-title{font-size:22px;font-weight:700;margin-bottom:6px;letter-spacing:-0.3px}
   .card-sub{font-size:14px;color:var(--text-muted);margin-bottom:28px}
 
-  .error-box{background:rgba(244,63,94,0.1);border:1px solid var(--red);border-radius:10px;padding:12px 16px;font-size:13px;color:#fb7185;margin-bottom:20px}
+  .error-box{background:rgba(244,63,94,0.1);border:1px solid var(--red);border-radius:10px;padding:12px 16px;font-size:13px;color:#fb7185;margin-bottom:20px;line-height:1.6}
+  .warning-box{background:rgba(245,158,11,0.1);border:1px solid #f59e0b;border-radius:10px;padding:12px 16px;font-size:13px;color:#fbbf24;margin-bottom:20px;line-height:1.6}
 
   .field{margin-bottom:20px}
   .label{display:block;font-size:13px;font-weight:500;color:var(--text-dim);margin-bottom:8px}
@@ -74,6 +75,10 @@
     <div class="error-box">⚠️ {{ error }}</div>
     {% endif %}
 
+    {% if warning %}
+    <div class="warning-box">⏳ {{ warning }}</div>
+    {% endif %}
+
     <div class="info-box">⚡ <strong>Instant upload</strong> — your document is saved immediately and AI embedding happens in the background automatically.</div>
 
     <form method="POST" enctype="multipart/form-data" id="uploadForm">
@@ -102,7 +107,9 @@
         <svg id="uploadIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
         <span id="submitLabel">Upload &amp; Embed</span>
       </button>
-      <div id="uploadProgress">⏳ <span id="progressText">Waking up embedding service…</span></div>
+      <div id="uploadProgress" style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px;display:none">
+        ⏳ <span id="progressText">Uploading and embedding your document, please wait...</span>
+      </div>
     </form>
   </div>
 </div>
@@ -128,17 +135,29 @@ dropZone.addEventListener("drop", e => {
   showFileName(fi);
 });
 
-// Show loading state on submit
+// Show loading state and progress message on submit
 document.getElementById("uploadForm").addEventListener("submit", () => {
-  const btn = document.getElementById("submitBtn");
+  const btn    = document.getElementById("submitBtn");
   const spinner = document.getElementById("spinner");
-  const icon = document.getElementById("uploadIcon");
-  const label = document.getElementById("submitLabel");
+  const icon   = document.getElementById("uploadIcon");
+  const label  = document.getElementById("submitLabel");
+  const progress = document.getElementById("uploadProgress");
+  const progressText = document.getElementById("progressText");
 
   btn.disabled = true;
   btn.classList.add("uploading");
   icon.style.display = "none";
   label.textContent = "Uploading…";
+  progress.style.display = "block";
+
+  // update the message after a few seconds to let user know we're still working
+  setTimeout(() => {
+    progressText.textContent = "Embedding your document into the knowledge base…";
+  }, 5000);
+
+  setTimeout(() => {
+    progressText.textContent = "Still working — the AI service may have been asleep. Hang tight…";
+  }, 25000);
 });
 </script>
 </body>

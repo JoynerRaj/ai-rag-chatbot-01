@@ -37,36 +37,60 @@ class FastAPIClient:
     def upload_document(cls, file, filename: str = None) -> tuple[str, str]:
         """Uploads document to FastAPI for Pinecone embedding.
 
+        Retries a few times to handle Render free-tier cold starts gracefully.
         file     : file-like object (Django upload OR io.BytesIO)
         filename : explicit filename — required when file is a BytesIO
-        
-        NOTE: No wake_up() call here — that added 60+ seconds to the Django
-        HTTP request and triggered Render's load-balancer 502. FastAPI wakes
-        naturally within the 90s upload timeout.
         """
         url = cls.get_base_url()
-        try:
-            fname = filename or getattr(file, 'name', None) or "upload.bin"
-            file.seek(0)
+        fname = filename or getattr(file, 'name', None) or "upload.bin"
 
-            res = requests.post(
-                url,
-                files={"file": (fname, file, "application/octet-stream")},
-                timeout=90,   # Render free tier wakes in ~30-60s; 90s gives a safe margin
-            )
+        # read the bytes once so we can seek back before each retry attempt
+        raw_bytes = file.read()
 
-            print(f"[upload_document] status={res.status_code}  fname={fname!r}")
+        MAX_ATTEMPTS = 4
+        WAIT_SECONDS = [0, 20, 30, 40]  # how long to wait before each attempt
 
-            if res.status_code == 200:
-                res_json = res.json()
-                if "error" in res_json:
-                    print(f"[upload_document] FastAPI error: {res_json['error']}")
-                    return "", ""
-                return res_json.get("document_id", ""), res_json.get("text", "")
-            else:
-                print(f"[upload_document] non-200 response: {res.text[:200]}")
-        except Exception as e:
-            print(f"[upload_document] exception: {e}")
+        for attempt in range(MAX_ATTEMPTS):
+            wait = WAIT_SECONDS[attempt]
+            if wait > 0:
+                print(f"[upload_document] waiting {wait}s before retry (attempt {attempt + 1}/{MAX_ATTEMPTS})...")
+                time.sleep(wait)
+
+            try:
+                import io
+                file_like = io.BytesIO(raw_bytes)
+
+                res = requests.post(
+                    url,
+                    files={"file": (fname, file_like, "application/octet-stream")},
+                    timeout=60,
+                )
+
+                print(f"[upload_document] attempt {attempt + 1} — status={res.status_code}  fname={fname!r}")
+
+                if res.status_code == 200:
+                    res_json = res.json()
+                    if "error" in res_json:
+                        print(f"[upload_document] FastAPI returned error: {res_json['error']}")
+                        # document issue (bad file), no point retrying
+                        return "", ""
+                    return res_json.get("document_id", ""), res_json.get("text", "")
+
+                # 502/503 usually means FastAPI is still waking up, retry
+                if res.status_code in (502, 503, 504):
+                    print(f"[upload_document] got {res.status_code}, will retry...")
+                    continue
+
+                print(f"[upload_document] unexpected status {res.status_code}: {res.text[:200]}")
+
+            except requests.exceptions.Timeout:
+                print(f"[upload_document] attempt {attempt + 1} timed out, will retry...")
+            except requests.exceptions.ConnectionError as e:
+                print(f"[upload_document] attempt {attempt + 1} connection error: {e}")
+            except Exception as e:
+                print(f"[upload_document] attempt {attempt + 1} unexpected error: {e}")
+
+        print(f"[upload_document] all {MAX_ATTEMPTS} attempts failed for {fname!r}")
         return "", ""
 
     @classmethod

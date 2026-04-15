@@ -83,11 +83,14 @@ def upload_page(request):
         print(f"[upload] Doc #{doc.id} saved — pinecone_id={pinecone_id!r}  status={embedding_status}")
 
         if not pinecone_id:
-            # Embedding failed (FastAPI cold start or error) — let user know and retry
+            # the document is saved in the DB but pinecone embedding didn't work
+            # this usually means the FastAPI service was cold starting on Render
+            # tell the user their file is saved and suggest retrying the upload
             return render(request, "upload.html", {
-                "error": (
-                    "The AI embedding service is starting up. "
-                    "Please wait 30 seconds and try uploading again."
+                "warning": (
+                    "Your document was saved but could not be embedded right now — "
+                    "the embedding service may have been starting up. "
+                    "Please try uploading the same file again in 30 seconds."
                 ),
                 "prefill_title": title,
             })
