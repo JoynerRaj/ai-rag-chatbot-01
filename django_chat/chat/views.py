@@ -103,10 +103,27 @@ def upload_page(request):
         )
         t.start()
 
-        # redirect straight away - embedding continues in the background
-        return redirect("documents")
+        # redirect to the progress page so the user can watch it complete
+        return redirect("upload_progress", doc_id=doc.id)
 
     return render(request, "upload.html")
+
+
+@login_required
+def upload_progress(request, doc_id):
+    # show the user a loading screen while embedding runs in the background
+    doc = get_object_or_404(Document, id=doc_id, user=request.user)
+    return render(request, "upload_progress.html", {"doc": doc})
+
+
+@login_required
+def upload_status(request, doc_id):
+    # the progress page polls this every few seconds to check if embedding is done
+    doc = get_object_or_404(Document, id=doc_id, user=request.user)
+    return JsonResponse({
+        "status": doc.embedding_status,
+        "pinecone_id": doc.pinecone_id or "",
+    })
 
 
 @login_required

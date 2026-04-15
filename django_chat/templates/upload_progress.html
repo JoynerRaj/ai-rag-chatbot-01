@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Embedding Document – RAG Chatbot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#030712;--card:#0f172a;--border:#1e293b;
+    --accent:#6366f1;--accent2:#8b5cf6;--accent-glow:rgba(99,102,241,0.14);
+    --text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;
+    --green:#10b981;--red:#f43f5e;--yellow:#f59e0b;--radius:16px;
+  }
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--border);background:rgba(3,7,18,0.8);backdrop-filter:blur(12px)}
+  .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+  .nav-icon{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px}
+  .nav-title{font-size:16px;font-weight:700}
+
+  .center{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:48px 40px;width:100%;max-width:460px;text-align:center}
+
+  /* spinning ring */
+  .ring-wrap{display:flex;align-items:center;justify-content:center;margin-bottom:32px}
+  .ring{width:72px;height:72px;border-radius:50%;border:4px solid var(--border);border-top-color:var(--accent);border-right-color:var(--accent2);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .doc-name{font-size:18px;font-weight:700;margin-bottom:8px;letter-spacing:-0.3px}
+  .status-text{font-size:14px;color:var(--text-muted);margin-bottom:28px;line-height:1.6;min-height:42px}
+
+  /* step track */
+  .steps{display:flex;flex-direction:column;gap:12px;text-align:left;margin-bottom:32px}
+  .step{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--text-muted);transition:color 0.3s}
+  .step.active{color:var(--text)}
+  .step.done{color:var(--green)}
+  .step-dot{width:10px;height:10px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background 0.3s}
+  .step.active .step-dot{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .step.done .step-dot{background:var(--green)}
+
+  /* progress bar */
+  .bar-bg{height:4px;background:var(--border);border-radius:4px;overflow:hidden;margin-bottom:28px}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:4px;width:0%;transition:width 0.6s ease}
+
+  /* done / failed states */
+  .result-icon{font-size:56px;margin-bottom:16px}
+  .result-title{font-size:20px;font-weight:700;margin-bottom:8px}
+  .result-sub{font-size:13px;color:var(--text-muted);margin-bottom:24px;line-height:1.6}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:11px 22px;border-radius:9px;font-family:inherit;font-size:14px;font-weight:600;text-decoration:none;transition:opacity 0.2s,transform 0.15s;cursor:pointer;border:none}
+  .btn:hover{opacity:0.88;transform:translateY(-1px)}
+  .btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff}
+  .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text-dim)}
+
+  #loadingState{}
+  #doneState{display:none}
+  #failedState{display:none}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-brand">
+    <div class="nav-icon">🤖</div>
+    <div class="nav-title">RAG Chatbot</div>
+  </a>
+</nav>
+
+<div class="center">
+  <div class="card">
+
+    <!-- LOADING STATE -->
+    <div id="loadingState">
+      <div class="ring-wrap"><div class="ring"></div></div>
+      <div class="doc-name">{{ doc.title }}</div>
+      <div class="status-text" id="statusText">Sending your document to the embedding service...</div>
+
+      <div class="steps">
+        <div class="step done" id="step1">
+          <div class="step-dot"></div>
+          Text extracted from file
+        </div>
+        <div class="step active" id="step2">
+          <div class="step-dot"></div>
+          Uploading to embedding service
+        </div>
+        <div class="step" id="step3">
+          <div class="step-dot"></div>
+          Generating vector embeddings
+        </div>
+        <div class="step" id="step4">
+          <div class="step-dot"></div>
+          Storing in Pinecone knowledge base
+        </div>
+      </div>
+
+      <div class="bar-bg"><div class="bar-fill" id="barFill"></div></div>
+      <div style="font-size:12px;color:var(--text-muted)">This may take up to 60 seconds if the service is waking up</div>
+    </div>
+
+    <!-- SUCCESS STATE -->
+    <div id="doneState">
+      <div class="result-icon">✅</div>
+      <div class="result-title">Embedded Successfully!</div>
+      <div class="result-sub"><strong>{{ doc.title }}</strong> has been processed and stored in the Pinecone knowledge base. The AI can now answer questions based on this document.</div>
+      <a href="/documents/" class="btn btn-primary">View My Documents</a>
+    </div>
+
+    <!-- FAILED STATE -->
+    <div id="failedState">
+      <div class="result-icon">❌</div>
+      <div class="result-title">Embedding Failed</div>
+      <div class="result-sub">The embedding service could not process your document. The file is saved and you can try uploading it again.</div>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <a href="/upload/" class="btn btn-primary">Try Again</a>
+        <a href="/documents/" class="btn btn-ghost">My Documents</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const DOC_ID = {{ doc.id }};
+const STATUS_URL = "/upload/status/" + DOC_ID + "/";
+
+const loadingEl  = document.getElementById("loadingState");
+const doneEl     = document.getElementById("doneState");
+const failedEl   = document.getElementById("failedState");
+const statusText = document.getElementById("statusText");
+const barFill    = document.getElementById("barFill");
+
+const step2 = document.getElementById("step2");
+const step3 = document.getElementById("step3");
+const step4 = document.getElementById("step4");
+
+let elapsed = 0;
+let pollInterval;
+
+function setStep(n) {
+  // mark steps 1..n as done, n+1 as active, rest idle
+  const steps = [null,
+    document.getElementById("step1"),
+    document.getElementById("step2"),
+    document.getElementById("step3"),
+    document.getElementById("step4"),
+  ];
+  for (let i = 1; i <= 4; i++) {
+    steps[i].className = "step";
+    if (i < n)       steps[i].classList.add("done");
+    else if (i === n) steps[i].classList.add("active");
+  }
+}
+
+function updateProgress() {
+  elapsed += 3;
+  // animate the bar and step text based on how long we've been waiting
+  if (elapsed < 8) {
+    barFill.style.width = "20%";
+    setStep(2);
+    statusText.textContent = "Sending your document to the embedding service...";
+  } else if (elapsed < 20) {
+    barFill.style.width = "45%";
+    setStep(3);
+    statusText.textContent = "Generating vector embeddings for your document...";
+  } else if (elapsed < 40) {
+    barFill.style.width = "70%";
+    setStep(4);
+    statusText.textContent = "Storing embeddings in Pinecone knowledge base...";
+  } else {
+    barFill.style.width = "85%";
+    setStep(4);
+    statusText.textContent = "Almost done — the service may have been cold starting, please wait a bit longer...";
+  }
+}
+
+function poll() {
+  updateProgress();
+
+  fetch(STATUS_URL)
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === "done") {
+        clearInterval(pollInterval);
+        barFill.style.width = "100%";
+        setTimeout(() => {
+          loadingEl.style.display = "none";
+          doneEl.style.display = "block";
+        }, 600);
+      } else if (data.status === "failed") {
+        clearInterval(pollInterval);
+        loadingEl.style.display = "none";
+        failedEl.style.display = "block";
+      }
+      // if still pending, just keep polling
+    })
+    .catch(err => {
+      console.warn("Status poll failed:", err);
+      // network hiccup - keep trying
+    });
+}
+
+// start polling immediately, then every 3 seconds
+poll();
+pollInterval = setInterval(poll, 3000);
+</script>
+</body>
+</html>
