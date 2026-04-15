@@ -33,23 +33,23 @@ class FastAPIClient:
     @classmethod
     def upload_document(cls, file, filename: str = None) -> tuple[str, str]:
         """Uploads document to FastAPI for Pinecone embedding.
-        
+
         file     : file-like object (Django upload OR io.BytesIO)
-        filename : explicit filename — required when file is a BytesIO with no name attr
+        filename : explicit filename — required when file is a BytesIO
+        
+        NOTE: No wake_up() call here — that added 60+ seconds to the Django
+        HTTP request and triggered Render's load-balancer 502. FastAPI wakes
+        naturally within the 90s upload timeout.
         """
-        cls.wake_up()  # ensure FastAPI is alive before the real upload
         url = cls.get_base_url()
         try:
-            # resolve filename from argument → file.name attr → fallback
             fname = filename or getattr(file, 'name', None) or "upload.bin"
             file.seek(0)
 
-            # Use explicit tuple (filename, fileobj, content-type) so FastAPI always
-            # gets the original filename — plain BytesIO doesn't carry it reliably
             res = requests.post(
                 url,
                 files={"file": (fname, file, "application/octet-stream")},
-                timeout=120,
+                timeout=90,   # Render free tier wakes in ~30-60s; 90s gives a safe margin
             )
 
             print(f"[upload_document] status={res.status_code}  fname={fname!r}")
