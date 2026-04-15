@@ -8,4 +8,5 @@ dj-database-url
 psycopg2-binary
 channels_redis
 pypdf
-django-allauth
+django-allauth
+apscheduler
