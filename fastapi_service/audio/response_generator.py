@@ -1,5 +1,4 @@
 import os
-from google import genai
 
 def generate_natural_language_answer(user_question: str, db_results: list) -> str:
     """
@@ -10,6 +9,7 @@ def generate_natural_language_answer(user_question: str, db_results: list) -> st
         print("Warning: GEMINI_API_KEY not found. Using raw fallback.")
         return f"Raw Data: {db_results}"
 
+    from google import genai
     client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
 
     prompt = f"""

@@ -1,5 +1,4 @@
 import os
-from google import genai
 
 def generate_sql_from_intent(user_question: str) -> str:
     """
@@ -11,6 +10,7 @@ def generate_sql_from_intent(user_question: str) -> str:
         print("Warning: GEMINI_API_KEY not found. Using fallback mock SQL.")
         return "SELECT * FROM events"
 
+    from google import genai
     client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
 
     prompt = f"""
