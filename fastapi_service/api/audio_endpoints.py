@@ -16,21 +16,34 @@ class AskRequest(BaseModel):
 async def upload_audio(file: UploadFile = File(...)):
     """
     Endpoint to receive an audio file, process it into events, and store them in SQLite.
+    The file is streamed directly to disk to avoid loading the whole thing into RAM.
     """
-    try:
-        content = await file.read()
-        
-        # In a real application, check file extension or mime type here.
-        if not file.filename.endswith(('.wav', '.mp3', '.ogg', '.m4a')):
-            raise HTTPException(status_code=400, detail="Unsupported audio format.")
+    import os
+    import tempfile
 
-        # Simulate event extraction
-        events = process_audio(content)
-        
-        # Save to SQLite
+    if not file.filename.endswith(('.wav', '.mp3', '.ogg', '.m4a')):
+        raise HTTPException(status_code=400, detail="Unsupported audio format.")
+
+    # Write the upload to a temp file in 64 KB chunks so we never hold
+    # the entire audio file in memory at once.
+    temp_fd, temp_path = tempfile.mkstemp(suffix="_" + file.filename)
+    try:
+        with os.fdopen(temp_fd, "wb") as tmp:
+            while True:
+                chunk = await file.read(65536)
+                if not chunk:
+                    break
+                tmp.write(chunk)
+
+        print(f"[audio] received {file.filename!r} → temp file {temp_path}")
+
+        # event_detector currently uses mock data; in production it would
+        # open temp_path with a real ML model (YAMNet / CLAP).
+        events = process_audio(temp_path)
+
         if events:
             insert_events(events)
-            
+
         return {
             "message": f"Successfully extracted and saved {len(events)} events from {file.filename}.",
             "events_detected": len(events)
@@ -39,6 +52,14 @@ async def upload_audio(file: UploadFile = File(...)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Always clean up the temp file regardless of success or failure
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
 
 @router.post("/ask/")
 async def ask_audio_question(req: AskRequest) -> Dict[str, Any]:

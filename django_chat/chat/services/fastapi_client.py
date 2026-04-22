@@ -163,7 +163,7 @@ class FastAPIClient:
                 headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
                 
                 print(f"[upload_audio] Streaming via generator: {filepath}")
-                res = requests.post(url, data=stream_multipart(filepath, filename, boundary), headers=headers, timeout=90)
+                res = requests.post(url, data=stream_multipart(filepath, filename, boundary), headers=headers, timeout=180)
                 if res.ok:
                     print(f"[upload_audio] Success: {res.json()}")
                     return True
