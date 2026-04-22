@@ -9,7 +9,7 @@
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{--bg:#030712;--card:#0f172a;--border:#1e293b;--accent:#6366f1;--accent-glow:rgba(99,102,241,0.14);--text:#f1f5f9;--text-muted:#64748b;--text-dim:#94a3b8;--green:#10b981;--red:#f43f5e;--radius:14px}
   body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
-  
+
   .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--border);background:rgba(3,7,18,0.8);backdrop-filter:blur(12px)}
   .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
   .nav-icon{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:18px}
@@ -22,20 +22,14 @@
   .card-title{font-size:22px;font-weight:700;margin-bottom:6px;letter-spacing:-0.3px}
   .card-sub{font-size:14px;color:var(--text-muted);margin-bottom:28px}
 
-  .error-box{background:rgba(244,63,94,0.1);border:1px solid var(--red);border-radius:10px;padding:12px 16px;font-size:13px;color:#fb7185;margin-bottom:20px;line-height:1.6}
-  .warning-box{background:rgba(245,158,11,0.1);border:1px solid #f59e0b;border-radius:10px;padding:12px 16px;font-size:13px;color:#fbbf24;margin-bottom:20px;line-height:1.6}
+  .error-box{background:rgba(244,63,94,0.1);border:1px solid var(--red);border-radius:10px;padding:12px 16px;font-size:13px;color:#fb7185;margin-bottom:20px;line-height:1.6;display:none}
 
   .field{margin-bottom:20px}
   .label{display:block;font-size:13px;font-weight:500;color:var(--text-dim);margin-bottom:8px}
   .input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:11px 14px;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:border-color 0.2s,box-shadow 0.2s}
   .input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
 
-  .drop-zone{
-    border:2px dashed var(--border);border-radius:12px;
-    padding:32px;text-align:center;cursor:pointer;
-    transition:border-color 0.2s,background 0.2s;
-    background:transparent;position:relative;
-  }
+  .drop-zone{border:2px dashed var(--border);border-radius:12px;padding:32px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;background:transparent;position:relative}
   .drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:var(--accent-glow)}
   .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
   .drop-icon{font-size:36px;margin-bottom:10px}
@@ -50,10 +44,15 @@
   .info-box{background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px 16px;font-size:12px;color:var(--text-dim);margin-bottom:20px;line-height:1.6}
   .info-box strong{color:var(--accent)}
 
+  /* Upload progress bar (shown during XHR transfer) */
+  .xhr-progress{margin-top:14px;display:none}
+  .xhr-bar-bg{height:6px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:6px}
+  .xhr-bar-fill{height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:6px;width:0%;transition:width 0.2s ease}
+  .xhr-label{font-size:12px;color:var(--text-muted);text-align:center}
+
   @keyframes spin{to{transform:rotate(360deg)}}
   .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.7s linear infinite;display:none}
   .uploading .spinner{display:block}
-  #uploadProgress{font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px;display:none}
 </style>
 </head>
 <body>
@@ -71,50 +70,48 @@
     <h1 class="card-title">📤 Upload Document</h1>
     <p class="card-sub">Add a TXT, PDF, DOCX, or Audio file to the AI knowledge base.</p>
 
-    {% if error %}
-    <div class="error-box">⚠️ {{ error }}</div>
-    {% endif %}
-
-    {% if warning %}
-    <div class="warning-box">⏳ {{ warning }}</div>
-    {% endif %}
+    <div class="error-box" id="errorBox"></div>
 
     <div class="info-box">⚡ <strong>Instant upload</strong> — your document is saved immediately and AI embedding happens in the background automatically.</div>
 
-    <form method="POST" enctype="multipart/form-data" id="uploadForm">
-      {% csrf_token %}
+    <div class="field">
+      <label class="label" for="titleInput">Document Name</label>
+      <input class="input" type="text" id="titleInput" name="title"
+             placeholder="e.g. Company Policy, Research Paper…" required>
+    </div>
 
-      <div class="field">
-        <label class="label" for="title">Document Name</label>
-      <input class="input" type="text" id="title" name="title"
-             placeholder="e.g. Company Policy, Research Paper…"
-             value="{{ prefill_title|default:'' }}" required>
+    <div class="field">
+      <label class="label">File</label>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" name="file" id="fileInput" accept=".txt,.pdf,.docx,.mp3,.wav,.ogg,.m4a" required onchange="showFileName(this)">
+        <div class="drop-icon">📂</div>
+        <div class="drop-title">Click to select or drag &amp; drop</div>
+        <div class="drop-sub">Supports .txt, .pdf, .docx, .mp3, .wav</div>
+        <div class="file-chosen" id="fileChosen" style="display:none"></div>
       </div>
+    </div>
 
-      <div class="field">
-        <label class="label">File</label>
-        <div class="drop-zone" id="dropZone">
-          <input type="file" name="file" id="fileInput" accept=".txt,.pdf,.docx,.mp3,.wav,.ogg,.m4a" required onchange="showFileName(this)">
-          <div class="drop-icon">📂</div>
-          <div class="drop-title">Click to select or drag &amp; drop</div>
-          <div class="drop-sub">Supports .txt, .pdf, .docx, .mp3, .wav</div>
-          <div class="file-chosen" id="fileChosen" style="display:none"></div>
-        </div>
-      </div>
+    <button type="button" class="submit-btn" id="submitBtn" onclick="startUpload()">
+      <div class="spinner" id="spinner"></div>
+      <svg id="uploadIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+      <span id="submitLabel">Upload &amp; Embed</span>
+    </button>
 
-      <button type="submit" class="submit-btn" id="submitBtn">
-        <div class="spinner" id="spinner"></div>
-        <svg id="uploadIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
-        <span id="submitLabel">Upload &amp; Embed</span>
-      </button>
-      <div id="uploadProgress" style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px;display:none">
-        ⏳ <span id="progressText">Uploading and embedding your document, please wait...</span>
-      </div>
-    </form>
+    <!-- XHR upload progress (shown while file is transferring to Django) -->
+    <div class="xhr-progress" id="xhrProgress">
+      <div class="xhr-bar-bg"><div class="xhr-bar-fill" id="xhrBar"></div></div>
+      <div class="xhr-label" id="xhrLabel">Uploading file to server…</div>
+    </div>
   </div>
 </div>
 
 <script>
+// Read the CSRF token from the Django cookie
+function getCsrf() {
+  const match = document.cookie.match(/csrftoken=([^;]+)/);
+  return match ? match[1] : "";
+}
+
 function showFileName(input) {
   const label = document.getElementById("fileChosen");
   if (input.files.length > 0) {
@@ -123,7 +120,7 @@ function showFileName(input) {
   }
 }
 
-// Drag-over styling
+// Drag-and-drop wiring
 const dropZone = document.getElementById("dropZone");
 dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
 dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
@@ -135,30 +132,91 @@ dropZone.addEventListener("drop", e => {
   showFileName(fi);
 });
 
-// Show loading state and progress message on submit
-document.getElementById("uploadForm").addEventListener("submit", () => {
-  const btn    = document.getElementById("submitBtn");
-  const spinner = document.getElementById("spinner");
-  const icon   = document.getElementById("uploadIcon");
-  const label  = document.getElementById("submitLabel");
-  const progress = document.getElementById("uploadProgress");
-  const progressText = document.getElementById("progressText");
+function showError(msg) {
+  const box = document.getElementById("errorBox");
+  box.textContent = "⚠️ " + msg;
+  box.style.display = "block";
+  // Re-enable button so the user can try again
+  const btn = document.getElementById("submitBtn");
+  btn.disabled = false;
+  btn.classList.remove("uploading");
+  document.getElementById("spinner").style.display = "none";
+  document.getElementById("uploadIcon").style.display = "";
+  document.getElementById("submitLabel").textContent = "Upload & Embed";
+  document.getElementById("xhrProgress").style.display = "none";
+}
 
+function startUpload() {
+  const title = document.getElementById("titleInput").value.trim();
+  const fileInput = document.getElementById("fileInput");
+
+  if (!title) { showError("Please enter a document name."); return; }
+  if (!fileInput.files.length) { showError("Please select a file."); return; }
+
+  // Hide any previous error
+  document.getElementById("errorBox").style.display = "none";
+
+  // Lock the button and show spinner
+  const btn    = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.classList.add("uploading");
-  icon.style.display = "none";
-  label.textContent = "Uploading…";
-  progress.style.display = "block";
+  document.getElementById("uploadIcon").style.display = "none";
+  document.getElementById("submitLabel").textContent = "Uploading…";
+  document.getElementById("xhrProgress").style.display = "block";
 
-  // update the message after a few seconds to let user know we're still working
-  setTimeout(() => {
-    progressText.textContent = "Embedding your document into the knowledge base…";
-  }, 5000);
+  // Build FormData exactly like a normal form POST would
+  const formData = new FormData();
+  formData.append("title", title);
+  formData.append("file", fileInput.files[0]);
 
-  setTimeout(() => {
-    progressText.textContent = "Still working — the AI service may have been asleep. Hang tight…";
-  }, 25000);
-});
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/upload/");
+
+  // Tell our Django view this is an AJAX upload so it returns JSON
+  xhr.setRequestHeader("X-Upload-Ajax", "true");
+  xhr.setRequestHeader("X-CSRFToken", getCsrf());
+
+  // Show real upload progress while the browser sends bytes to Django
+  xhr.upload.addEventListener("progress", function(e) {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      document.getElementById("xhrBar").style.width = pct + "%";
+      document.getElementById("xhrLabel").textContent =
+        pct < 100
+          ? `Uploading file… ${pct}%`
+          : "File received — saving and starting embedding…";
+    }
+  });
+
+  xhr.onload = function() {
+    if (xhr.status === 200) {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.doc_id) {
+          // File was saved and background embedding started — go to progress page
+          window.location.href = "/upload/progress/" + data.doc_id + "/";
+        } else if (data.error) {
+          showError(data.error);
+        }
+      } catch (e) {
+        showError("Unexpected server response. Please try again.");
+      }
+    } else {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        showError(data.error || "Upload failed (HTTP " + xhr.status + ").");
+      } catch(e) {
+        showError("Upload failed (HTTP " + xhr.status + "). Please try again.");
+      }
+    }
+  };
+
+  xhr.onerror = function() {
+    showError("Network error during upload. Check your connection and try again.");
+  };
+
+  xhr.send(formData);
+}
 </script>
 </body>
 </html>

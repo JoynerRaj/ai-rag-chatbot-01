@@ -51,7 +51,12 @@ def upload_page(request):
         title = request.POST.get("title", "").strip() or "Untitled"
         file = request.FILES.get("file")
 
+        # Detect whether this is an AJAX upload from our JS fetch() call
+        is_ajax = request.headers.get("X-Upload-Ajax") == "true"
+
         if not file:
+            if is_ajax:
+                return JsonResponse({"error": "No file selected"}, status=400)
             return render(request, "upload.html", {"error": "No file selected"})
 
         import os
@@ -59,9 +64,10 @@ def upload_page(request):
 
         file_name = file.name.lower()
         is_audio = file_name.endswith((".mp3", ".wav", ".ogg", ".m4a"))
-        
-        # Save file to disk so it survives the HTTP request lifecycle
-        # This prevents OOM errors on Render for large (60MB) audio files
+
+        # Stream the incoming file straight to a temp file on disk.
+        # We never hold the whole thing in RAM, so there is no memory spike
+        # regardless of how large the file is.
         temp_fd, temp_path = tempfile.mkstemp(suffix="_" + file_name)
         with os.fdopen(temp_fd, 'wb') as dest:
             for chunk in file.chunks():
@@ -70,17 +76,19 @@ def upload_page(request):
         if is_audio:
             content = "Audio file events mapped."
         else:
-            # We can still extract text in the foreground since text docs are usually small
             with open(temp_path, 'rb') as f:
                 content = DocumentExtractionService.extract_text_from_bytes(f.read(), file_name) or ""
 
         if not content.strip():
-            return render(request, "upload.html", {
-                "error": "Could not read any text from this file. Make sure it is a valid PDF, DOCX, or TXT."
-            })
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            msg = "Could not read any text from this file. Make sure it is a valid PDF, DOCX, or TXT."
+            if is_ajax:
+                return JsonResponse({"error": msg}, status=400)
+            return render(request, "upload.html", {"error": msg})
 
-        # save straight away with pending status - user gets redirected immediately
-        # the actual Pinecone embedding happens in the thread below
+        # Create the DB record immediately with PENDING status.
+        # The user is sent to the progress page right away; embedding happens in a thread.
         doc = Document.objects.create(
             user=request.user,
             title=title,
@@ -90,12 +98,10 @@ def upload_page(request):
         )
         print(f"[upload] Doc #{doc.id} saved, starting background embedding...")
 
-        # embedding in a background thread means the HTTP response goes back fast
-        # and Render's 30s request timeout never gets triggered
         def embed_in_background(doc_id, filepath, original_filename):
             try:
                 doc_obj = Document.objects.get(id=doc_id)
-                
+
                 with open(filepath, 'rb') as file_like:
                     if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
                         success = FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
@@ -124,7 +130,6 @@ def upload_page(request):
             except Exception as e:
                 print(f"[upload] background embed crashed for doc #{doc_id}: {e}")
             finally:
-                # Cleanup the temp file to save disk space
                 if os.path.exists(filepath):
                     try:
                         os.remove(filepath)
@@ -138,7 +143,12 @@ def upload_page(request):
         )
         t.start()
 
-        # redirect to the progress page so the user can watch it complete
+        # For AJAX uploads: return JSON so the browser can navigate itself.
+        # This avoids the server-side redirect which requires the full 60MB
+        # upload to finish before Django can respond.
+        if is_ajax:
+            return JsonResponse({"doc_id": doc.id})
+
         return redirect("upload_progress", doc_id=doc.id)
 
     return render(request, "upload.html")
