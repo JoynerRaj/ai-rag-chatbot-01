@@ -11,6 +11,10 @@ router = APIRouter()
 def home():
     return {"message": "FastAPI Upload Service Running"}
 
+@router.get("/health")
+def health():
+    return {"status": "ok"}
+
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     content = await file.read()

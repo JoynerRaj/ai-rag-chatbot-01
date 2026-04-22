@@ -26,3 +26,8 @@ app.include_router(audio_router)
 async def startup_event():
     init_db()
     EmbeddingService.preload_model_background()
+
+@app.head("/")
+@app.get("/")
+def health_check():
+    return {"status": "healthy"}
