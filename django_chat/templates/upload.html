@@ -69,7 +69,7 @@
 <div class="center">
   <div class="card">
     <h1 class="card-title">📤 Upload Document</h1>
-    <p class="card-sub">Add a TXT, PDF, or DOCX file to the AI knowledge base.</p>
+    <p class="card-sub">Add a TXT, PDF, DOCX, or Audio file to the AI knowledge base.</p>
 
     {% if error %}
     <div class="error-box">⚠️ {{ error }}</div>
@@ -94,10 +94,10 @@
       <div class="field">
         <label class="label">File</label>
         <div class="drop-zone" id="dropZone">
-          <input type="file" name="file" id="fileInput" accept=".txt,.pdf,.docx" required onchange="showFileName(this)">
+          <input type="file" name="file" id="fileInput" accept=".txt,.pdf,.docx,.mp3,.wav,.ogg,.m4a" required onchange="showFileName(this)">
           <div class="drop-icon">📂</div>
           <div class="drop-title">Click to select or drag &amp; drop</div>
-          <div class="drop-sub">Supports .txt, .pdf, .docx</div>
+          <div class="drop-sub">Supports .txt, .pdf, .docx, .mp3, .wav</div>
           <div class="file-chosen" id="fileChosen" style="display:none"></div>
         </div>
       </div>

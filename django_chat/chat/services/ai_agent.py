@@ -47,6 +47,20 @@ class AIAgentService:
                     print(f"[{chat_id}] Cache HIT")
                     return cached
 
+            # If the selected document is an audio document, bypass text RAG
+            if document_id and str(document_id).startswith("audio_"):
+                try:
+                    print(f"[{chat_id}] Routing query to Audio RAG...")
+                    audio_answer = FastAPIClient.ask_audio(query)
+                    if audio_answer:
+                        # Save to cache if it's a valid answer
+                        if user_id is not None:
+                            semantic_cache_set(query, audio_answer, document_id, user_id=user_id)
+                        return audio_answer
+                except Exception as e:
+                    print(f"[{chat_id}] Audio RAG failed: {e}")
+                return "I couldn't process your question about the audio at this time."
+
             # search Pinecone before calling Gemini so the answer is always
             # grounded in the actual uploaded documents, not just general knowledge
             rag_context = ""

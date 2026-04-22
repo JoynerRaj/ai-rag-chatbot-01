@@ -57,7 +57,12 @@ def upload_page(request):
         # read the bytes now before any async work happens so we don't lose the file
         file_bytes = file.read()
         file_name = file.name.lower()
-        content = DocumentExtractionService.extract_text_from_bytes(file_bytes, file_name) or ""
+        is_audio = file_name.endswith((".mp3", ".wav", ".ogg", ".m4a"))
+        
+        if is_audio:
+            content = "Audio file events mapped."
+        else:
+            content = DocumentExtractionService.extract_text_from_bytes(file_bytes, file_name) or ""
 
         if not content.strip():
             return render(request, "upload.html", {
@@ -79,21 +84,33 @@ def upload_page(request):
         # and Render's 30s request timeout never gets triggered
         def embed_in_background(doc_id, raw_bytes, original_filename):
             try:
-                file_like = io.BytesIO(raw_bytes)
-                pinecone_id, fastapi_text = FastAPIClient.upload_document(
-                    file_like, filename=original_filename
-                )
                 doc_obj = Document.objects.get(id=doc_id)
-                if pinecone_id:
-                    doc_obj.pinecone_id = pinecone_id
-                    doc_obj.embedding_status = Document.EMBEDDING_DONE
-                    if fastapi_text and fastapi_text.strip():
-                        doc_obj.content = fastapi_text
-                    print(f"[upload] Doc #{doc_id} embedded - pinecone_id={pinecone_id!r}")
+                file_like = io.BytesIO(raw_bytes)
+                
+                if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+                    success = FastAPIClient.upload_audio(file_like, original_filename)
+                    if success:
+                        doc_obj.pinecone_id = f"audio_{doc_id}"
+                        doc_obj.embedding_status = Document.EMBEDDING_DONE
+                        print(f"[upload] Audio #{doc_id} processed successfully.")
+                    else:
+                        doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                        print(f"[upload] Audio #{doc_id} processing failed.")
+                    doc_obj.save()
                 else:
-                    doc_obj.embedding_status = Document.EMBEDDING_FAILED
-                    print(f"[upload] Doc #{doc_id} embedding failed after retries")
-                doc_obj.save()
+                    pinecone_id, fastapi_text = FastAPIClient.upload_document(
+                        file_like, filename=original_filename
+                    )
+                    if pinecone_id:
+                        doc_obj.pinecone_id = pinecone_id
+                        doc_obj.embedding_status = Document.EMBEDDING_DONE
+                        if fastapi_text and fastapi_text.strip():
+                            doc_obj.content = fastapi_text
+                        print(f"[upload] Doc #{doc_id} embedded - pinecone_id={pinecone_id!r}")
+                    else:
+                        doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                        print(f"[upload] Doc #{doc_id} embedding failed after retries")
+                    doc_obj.save()
             except Exception as e:
                 print(f"[upload] background embed crashed for doc #{doc_id}: {e}")
 

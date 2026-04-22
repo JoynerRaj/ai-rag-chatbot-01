@@ -129,3 +129,33 @@ class FastAPIClient:
                 print("Pinecone delete failed:", res.text)
         except Exception as e:
             print("Pinecone delete error:", e)
+
+    @classmethod
+    def upload_audio(cls, file_like, filename: str) -> bool:
+        """Upload an audio file to the audio event extractor."""
+        url = cls._base() + "/audio/upload-audio/"
+        try:
+            file_like.seek(0)
+            res = requests.post(url, files={"file": (filename, file_like, "audio/mpeg")}, timeout=90)
+            if res.ok:
+                print(f"[upload_audio] Success: {res.json()}")
+                return True
+            print(f"[upload_audio] Failed {res.status_code}: {res.text}")
+            return False
+        except Exception as e:
+            print(f"[upload_audio] Error: {e}")
+            return False
+
+    @classmethod
+    def ask_audio(cls, query: str) -> str:
+        """Ask a question about audio events."""
+        url = cls._base() + "/audio/ask/"
+        try:
+            res = requests.post(url, json={"question": query}, timeout=30)
+            if res.ok:
+                data = res.json()
+                return data.get("answer", "")
+            return ""
+        except Exception as e:
+            print(f"[ask_audio] Error: {e}")
+            return ""
