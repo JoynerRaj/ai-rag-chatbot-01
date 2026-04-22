@@ -47,19 +47,65 @@ class AIAgentService:
                     print(f"[{chat_id}] Cache HIT")
                     return cached
 
-            # If the selected document is an audio document, bypass text RAG
+            # If the selected document is an audio document, try Audio Event RAG first,
+            # then fall back to answering directly from the stored transcript content.
             if document_id and str(document_id).startswith("audio_"):
                 try:
                     print(f"[{chat_id}] Routing query to Audio RAG...")
                     audio_answer = FastAPIClient.ask_audio(query)
-                    if audio_answer:
-                        # Save to cache if it's a valid answer
+                    if audio_answer and audio_answer.strip():
                         if user_id is not None:
                             semantic_cache_set(query, audio_answer, document_id, user_id=user_id)
                         return audio_answer
                 except Exception as e:
                     print(f"[{chat_id}] Audio RAG failed: {e}")
-                return "I couldn't process your question about the audio at this time."
+
+                # Audio RAG returned nothing (common for speech/interview audio).
+                # Fall back to answering from the document's stored transcript content.
+                print(f"[{chat_id}] Audio RAG empty — falling back to transcript RAG...")
+                try:
+                    # Extract the numeric doc ID from the pinecone_id, e.g. "audio_42" → 42
+                    doc_pk = int(str(document_id).replace("audio_", ""))
+                    doc_obj = Document.objects.get(id=doc_pk, user=user)
+                    transcript = doc_obj.content or ""
+                except Exception as e:
+                    print(f"[{chat_id}] Could not load audio doc transcript: {e}")
+                    transcript = ""
+
+                if transcript and transcript.strip() and transcript != "Audio file events mapped.":
+                    client = genai.Client(
+                        api_key=os.getenv("GEMINI_API_KEY"),
+                        http_options={"api_version": "v1alpha"}
+                    )
+                    system_instruction = (
+                        "You are a helpful AI assistant. You are given the transcript of an audio file "
+                        "uploaded by the user. Answer the user's question based only on this transcript. "
+                        "Be specific and quote relevant parts where helpful."
+                    )
+                    user_message = (
+                        f"Here is the transcript of the audio:\\n\\n{transcript}\\n\\n"
+                        f"Answer this question based on the transcript:\\n{query}"
+                    )
+                    contents = [types.Content(role="user", parts=[types.Part(text=user_message)])]
+                    config = types.GenerateContentConfig(system_instruction=system_instruction)
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-2.5-flash", contents=contents, config=config
+                        )
+                        candidate = response.candidates[0]
+                        if candidate.content and candidate.content.parts:
+                            answer = "".join([
+                                p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
+                            ]).strip()
+                            if answer:
+                                if user_id is not None:
+                                    semantic_cache_set(query, answer, document_id, user_id=user_id)
+                                return answer
+                    except Exception as e:
+                        print(f"[{chat_id}] Transcript Gemini fallback failed: {e}")
+
+                return "I couldn't find an answer in the audio content. Please try rephrasing your question."
+
 
             # search Pinecone before calling Gemini so the answer is always
             # grounded in the actual uploaded documents, not just general knowledge

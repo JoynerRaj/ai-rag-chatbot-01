@@ -183,15 +183,23 @@ class FastAPIClient:
             return False
 
     @classmethod
-    def ask_audio(cls, query: str) -> str:
-        """Ask a question about audio events."""
+    def ask_audio(cls, question: str) -> str:
+        """
+        Send a natural language question to the FastAPI audio event RAG endpoint.
+        Returns the answer string, or an empty string if the call fails.
+        """
         url = cls._base() + "/audio/ask/"
         try:
-            res = requests.post(url, json={"question": query}, timeout=30)
+            res = requests.post(url, json={"question": question}, timeout=30)
             if res.ok:
                 data = res.json()
-                return data.get("answer", "")
+                answer = data.get("answer", "")
+                print(f"[ask_audio] answer={answer[:80]!r}")
+                return answer
+            print(f"[ask_audio] Failed {res.status_code}: {res.text}")
             return ""
         except Exception as e:
             print(f"[ask_audio] Error: {e}")
             return ""
+
+
