@@ -44,15 +44,14 @@
   .info-box{background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;padding:12px 16px;font-size:12px;color:var(--text-dim);margin-bottom:20px;line-height:1.6}
   .info-box strong{color:var(--accent)}
 
-  /* Upload progress bar (shown during XHR transfer) */
-  .xhr-progress{margin-top:14px;display:none}
-  .xhr-bar-bg{height:6px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:6px}
-  .xhr-bar-fill{height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:6px;width:0%;transition:width 0.2s ease}
-  .xhr-label{font-size:12px;color:var(--text-muted);text-align:center}
+  /* Chunk progress area */
+  .progress-area{margin-top:14px;display:none}
+  .bar-bg{height:6px;background:var(--border);border-radius:6px;overflow:hidden;margin-bottom:8px}
+  .bar-fill{height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:6px;width:0%;transition:width 0.25s ease}
+  .progress-label{font-size:12px;color:var(--text-muted);text-align:center}
 
   @keyframes spin{to{transform:rotate(360deg)}}
   .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.7s linear infinite;display:none}
-  .uploading .spinner{display:block}
 </style>
 </head>
 <body>
@@ -76,14 +75,13 @@
 
     <div class="field">
       <label class="label" for="titleInput">Document Name</label>
-      <input class="input" type="text" id="titleInput" name="title"
-             placeholder="e.g. Company Policy, Research Paper…" required>
+      <input class="input" type="text" id="titleInput" placeholder="e.g. Company Policy, Research Paper…" required>
     </div>
 
     <div class="field">
       <label class="label">File</label>
       <div class="drop-zone" id="dropZone">
-        <input type="file" name="file" id="fileInput" accept=".txt,.pdf,.docx,.mp3,.wav,.ogg,.m4a" required onchange="showFileName(this)">
+        <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.mp3,.wav,.ogg,.m4a" onchange="showFileName(this)">
         <div class="drop-icon">📂</div>
         <div class="drop-title">Click to select or drag &amp; drop</div>
         <div class="drop-sub">Supports .txt, .pdf, .docx, .mp3, .wav</div>
@@ -97,19 +95,26 @@
       <span id="submitLabel">Upload &amp; Embed</span>
     </button>
 
-    <!-- XHR upload progress (shown while file is transferring to Django) -->
-    <div class="xhr-progress" id="xhrProgress">
-      <div class="xhr-bar-bg"><div class="xhr-bar-fill" id="xhrBar"></div></div>
-      <div class="xhr-label" id="xhrLabel">Uploading file to server…</div>
+    <div class="progress-area" id="progressArea">
+      <div class="bar-bg"><div class="bar-fill" id="barFill"></div></div>
+      <div class="progress-label" id="progressLabel">Preparing upload…</div>
     </div>
   </div>
 </div>
 
 <script>
-// Read the CSRF token from the Django cookie
+// Each chunk is 4 MB — small enough to complete well within Render's 30-second limit
+const CHUNK_SIZE = 4 * 1024 * 1024;
+
 function getCsrf() {
   const match = document.cookie.match(/csrftoken=([^;]+)/);
   return match ? match[1] : "";
+}
+
+function generateUploadId() {
+  // Simple random hex string to identify this upload session
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 function showFileName(input) {
@@ -132,90 +137,93 @@ dropZone.addEventListener("drop", e => {
   showFileName(fi);
 });
 
+function setProgress(pct, label) {
+  document.getElementById("barFill").style.width = pct + "%";
+  document.getElementById("progressLabel").textContent = label;
+}
+
 function showError(msg) {
   const box = document.getElementById("errorBox");
   box.textContent = "⚠️ " + msg;
   box.style.display = "block";
-  // Re-enable button so the user can try again
   const btn = document.getElementById("submitBtn");
   btn.disabled = false;
-  btn.classList.remove("uploading");
   document.getElementById("spinner").style.display = "none";
   document.getElementById("uploadIcon").style.display = "";
   document.getElementById("submitLabel").textContent = "Upload & Embed";
-  document.getElementById("xhrProgress").style.display = "none";
+  document.getElementById("progressArea").style.display = "none";
 }
 
-function startUpload() {
+async function sendChunk(formData) {
+  const response = await fetch("/upload/chunk/", {
+    method: "POST",
+    headers: { "X-CSRFToken": getCsrf() },
+    body: formData,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error("HTTP " + response.status + ": " + text);
+  }
+  return response.json();
+}
+
+async function startUpload() {
   const title = document.getElementById("titleInput").value.trim();
   const fileInput = document.getElementById("fileInput");
 
   if (!title) { showError("Please enter a document name."); return; }
   if (!fileInput.files.length) { showError("Please select a file."); return; }
 
-  // Hide any previous error
   document.getElementById("errorBox").style.display = "none";
 
-  // Lock the button and show spinner
-  const btn    = document.getElementById("submitBtn");
+  // Lock the UI
+  const btn = document.getElementById("submitBtn");
   btn.disabled = true;
-  btn.classList.add("uploading");
+  document.getElementById("spinner").style.display = "block";
   document.getElementById("uploadIcon").style.display = "none";
   document.getElementById("submitLabel").textContent = "Uploading…";
-  document.getElementById("xhrProgress").style.display = "block";
+  document.getElementById("progressArea").style.display = "block";
 
-  // Build FormData exactly like a normal form POST would
-  const formData = new FormData();
-  formData.append("title", title);
-  formData.append("file", fileInput.files[0]);
+  const file = fileInput.files[0];
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  const uploadId = generateUploadId();
 
-  const xhr = new XMLHttpRequest();
-  xhr.open("POST", "/upload/");
+  setProgress(0, `Starting upload (${totalChunks} part${totalChunks > 1 ? "s" : ""})…`);
 
-  // Tell our Django view this is an AJAX upload so it returns JSON
-  xhr.setRequestHeader("X-Upload-Ajax", "true");
-  xhr.setRequestHeader("X-CSRFToken", getCsrf());
+  try {
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunkBlob = file.slice(start, end);
 
-  // Show real upload progress while the browser sends bytes to Django
-  xhr.upload.addEventListener("progress", function(e) {
-    if (e.lengthComputable) {
-      const pct = Math.round((e.loaded / e.total) * 100);
-      document.getElementById("xhrBar").style.width = pct + "%";
-      document.getElementById("xhrLabel").textContent =
-        pct < 100
-          ? `Uploading file… ${pct}%`
-          : "File received — saving and starting embedding…";
-    }
-  });
+      const formData = new FormData();
+      formData.append("upload_id", uploadId);
+      formData.append("chunk_index", i);
+      formData.append("total_chunks", totalChunks);
+      formData.append("filename", file.name);
+      formData.append("title", title);
+      formData.append("chunk", chunkBlob, file.name);
 
-  xhr.onload = function() {
-    if (xhr.status === 200) {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (data.doc_id) {
-          // File was saved and background embedding started — go to progress page
-          window.location.href = "/upload/progress/" + data.doc_id + "/";
-        } else if (data.error) {
-          showError(data.error);
-        }
-      } catch (e) {
-        showError("Unexpected server response. Please try again.");
+      const pct = Math.round(((i + 1) / totalChunks) * 90); // save last 10% for assembly
+      setProgress(pct, `Uploading part ${i + 1} of ${totalChunks}… (${pct}%)`);
+
+      const data = await sendChunk(formData);
+
+      if (data.status === "complete" && data.doc_id) {
+        setProgress(100, "Upload complete — starting embedding…");
+        window.location.href = "/upload/progress/" + data.doc_id + "/";
+        return;
       }
-    } else {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        showError(data.error || "Upload failed (HTTP " + xhr.status + ").");
-      } catch(e) {
-        showError("Upload failed (HTTP " + xhr.status + "). Please try again.");
+
+      if (data.error) {
+        showError(data.error);
+        return;
       }
+      // data.status === "chunk_received" — continue loop
     }
-  };
-
-  xhr.onerror = function() {
-    showError("Network error during upload. Check your connection and try again.");
-  };
-
-  xhr.send(formData);
+  } catch (err) {
+    showError("Upload failed: " + err.message + ". Please try again.");
+  }
 }
 </script>
 </body>

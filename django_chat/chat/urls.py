@@ -6,6 +6,7 @@ urlpatterns = [
     path("", views.chat_page, name="chat"),
     path("documents/", views.document_list, name="documents"),
     path("upload/", views.upload_page, name="upload"),
+    path("upload/chunk/", views.upload_chunk, name="upload_chunk"),
     path("upload/progress/<int:doc_id>/", views.upload_progress, name="upload_progress"),
     path("upload/status/<int:doc_id>/", views.upload_status, name="upload_status"),
     path("delete/<int:id>/", views.delete_document, name="delete"),

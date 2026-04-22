@@ -172,6 +172,131 @@ def upload_status(request, doc_id):
 
 
 @login_required
+def upload_chunk(request):
+    """
+    Receives one chunk of a large file upload at a time.
+    The browser slices the file into ~4 MB pieces and POSTs them here
+    sequentially, so no single request is large enough to hit Render's
+    30-second response timeout.
+
+    Once all chunks have arrived this view assembles them into a single
+    temp file on disk, creates the Document record, and starts the
+    background embedding thread — identical to what upload_page does.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    import os
+    import shutil
+    import tempfile
+
+    upload_id    = request.POST.get("upload_id", "").strip()
+    chunk_index  = int(request.POST.get("chunk_index", 0))
+    total_chunks = int(request.POST.get("total_chunks", 1))
+    original_name = request.POST.get("filename", "upload.bin")
+    title        = request.POST.get("title", "Untitled").strip() or "Untitled"
+    chunk_file   = request.FILES.get("chunk")
+
+    if not upload_id or not chunk_file:
+        return JsonResponse({"error": "Missing upload_id or chunk data"}, status=400)
+
+    # Each upload gets its own temp directory keyed by the upload_id
+    chunk_dir  = os.path.join(tempfile.gettempdir(), f"ragupload_{upload_id}")
+    os.makedirs(chunk_dir, exist_ok=True)
+
+    # Write this chunk to disk
+    chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_index:05d}")
+    with open(chunk_path, "wb") as out:
+        for data in chunk_file.chunks():
+            out.write(data)
+
+    # Check how many chunks we have so far
+    received = len([f for f in os.listdir(chunk_dir) if f.startswith("chunk_")])
+    print(f"[chunk] upload_id={upload_id}  chunk {chunk_index + 1}/{total_chunks}  received={received}")
+
+    if received < total_chunks:
+        # Not all chunks have arrived yet — tell the browser to keep going
+        return JsonResponse({"status": "chunk_received", "received": received, "total": total_chunks})
+
+    # All chunks are on disk — assemble them into a single file
+    file_name = original_name.lower()
+    temp_fd, temp_path = tempfile.mkstemp(suffix="_" + file_name)
+    with os.fdopen(temp_fd, "wb") as assembled:
+        for i in range(total_chunks):
+            part = os.path.join(chunk_dir, f"chunk_{i:05d}")
+            with open(part, "rb") as pf:
+                assembled.write(pf.read())
+
+    # The individual chunks are no longer needed
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+    print(f"[chunk] assembly complete: {temp_path}  file={original_name!r}")
+
+    is_audio = file_name.endswith((".mp3", ".wav", ".ogg", ".m4a"))
+
+    if is_audio:
+        content = "Audio file events mapped."
+    else:
+        with open(temp_path, "rb") as f:
+            content = DocumentExtractionService.extract_text_from_bytes(f.read(), file_name) or ""
+
+    if not content.strip():
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return JsonResponse({"error": "Could not read any text from this file."}, status=400)
+
+    doc = Document.objects.create(
+        user=request.user,
+        title=title,
+        content=content,
+        pinecone_id=None,
+        embedding_status=Document.EMBEDDING_PENDING,
+    )
+    print(f"[chunk] Doc #{doc.id} created, starting background embedding...")
+
+    def embed_in_background(doc_id, filepath, orig_filename):
+        try:
+            doc_obj = Document.objects.get(id=doc_id)
+
+            with open(filepath, "rb") as file_like:
+                if orig_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+                    success = FastAPIClient.upload_audio(file_like, orig_filename, filepath=filepath)
+                    if success:
+                        doc_obj.pinecone_id = f"audio_{doc_id}"
+                        doc_obj.embedding_status = Document.EMBEDDING_DONE
+                        print(f"[chunk] Audio #{doc_id} processed successfully.")
+                    else:
+                        doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                        print(f"[chunk] Audio #{doc_id} processing failed.")
+                    doc_obj.save()
+                else:
+                    pinecone_id, fastapi_text = FastAPIClient.upload_document(
+                        file_like, filename=orig_filename, filepath=filepath
+                    )
+                    if pinecone_id:
+                        doc_obj.pinecone_id = pinecone_id
+                        doc_obj.embedding_status = Document.EMBEDDING_DONE
+                        if fastapi_text and fastapi_text.strip():
+                            doc_obj.content = fastapi_text
+                        print(f"[chunk] Doc #{doc_id} embedded - pinecone_id={pinecone_id!r}")
+                    else:
+                        doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                        print(f"[chunk] Doc #{doc_id} embedding failed after retries")
+                    doc_obj.save()
+        except Exception as e:
+            print(f"[chunk] background embed crashed for doc #{doc_id}: {e}")
+        finally:
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass
+
+    threading.Thread(target=embed_in_background, args=(doc.id, temp_path, original_name), daemon=True).start()
+
+    return JsonResponse({"status": "complete", "doc_id": doc.id})
+
+
+@login_required
 def document_list(request):
     docs = Document.objects.filter(user=request.user)
     return render(request, "documents.html", {"docs": docs})
