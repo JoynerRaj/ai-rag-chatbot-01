@@ -142,16 +142,19 @@ class FastAPIClient:
             print("Pinecone delete error:", e)
 
     @classmethod
-    def upload_audio(cls, file_like, filename: str, filepath: str = None) -> str:
+    def upload_audio(cls, file_like, filename: str, filepath: str = None) -> bool:
         """
-        Upload an audio file to the FastAPI transcription + event-detection service.
-        Returns the transcript string on success, or an empty string on failure.
-        The caller is responsible for saving the transcript to the Document record.
+        Upload an audio file to the FastAPI sound-event detection service.
+        Returns True on success, False on failure.
+
+        Note: speech transcription is handled separately by calling
+        transcribe_audio_with_gemini() in Django's background thread
+        before this method is invoked.
         """
         url = cls._base() + "/audio/upload-audio/"
 
         def stream_multipart(path, file_name, boundary):
-            """Generator that yields a raw multipart/form-data body in 64 KB chunks."""
+            """Yield a raw multipart/form-data body in 64 KB chunks."""
             yield f"--{boundary}\r\n".encode("utf-8")
             yield f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'.encode("utf-8")
             yield b'Content-Type: audio/mpeg\r\n\r\n'
@@ -166,36 +169,32 @@ class FastAPIClient:
                 import uuid
                 boundary = uuid.uuid4().hex
                 headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
-
                 print(f"[upload_audio] Streaming via generator: {filepath}")
-                # Large timeout because Gemini transcription can take 1-2 minutes
                 res = requests.post(
                     url,
                     data=stream_multipart(filepath, filename, boundary),
                     headers=headers,
-                    timeout=300,
+                    timeout=120,
                 )
             else:
-                # Fallback path for small in-memory file objects
                 file_like.seek(0)
                 res = requests.post(
                     url,
                     files={"file": (filename, file_like, "audio/mpeg")},
-                    timeout=300,
+                    timeout=120,
                 )
 
             if res.ok:
-                data = res.json()
-                transcript = data.get("transcript", "")
-                print(f"[upload_audio] Success — transcript: {len(transcript)} chars")
-                return transcript
+                print(f"[upload_audio] Success: {res.json()}")
+                return True
 
             print(f"[upload_audio] Failed {res.status_code}: {res.text}")
-            return ""
+            return False
 
         except Exception as e:
             print(f"[upload_audio] Error: {e}")
-            return ""
+            return False
+
 
 
     @classmethod

@@ -15,6 +15,77 @@ from .redis_client import redis_client
 def health_check(request):
     return HttpResponse("OK")
 
+
+def _transcribe_audio_with_gemini(filepath: str, filename: str) -> str:
+    """
+    Upload an audio file to Gemini's Files API and ask it to produce a
+    verbatim transcript of the speech.  Runs in a background thread so
+    there is no HTTP timeout to worry about.
+
+    Returns the transcript string, or "" if transcription fails.
+    """
+    import os
+    import time
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        print("[transcribe] No GEMINI_API_KEY — skipping.")
+        return ""
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        ext = filename.lower().rsplit(".", 1)[-1]
+        mime_map = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4"}
+        mime_type = mime_map.get(ext, "audio/mpeg")
+
+        client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
+
+        print(f"[transcribe] Uploading {filename!r} ({mime_type}) to Gemini Files API...")
+        with open(filepath, "rb") as f:
+            file_obj = client.files.upload(
+                file=f,
+                config=types.UploadFileConfig(mime_type=mime_type, display_name=filename),
+            )
+
+        # Wait until Gemini finishes processing (usually a few seconds)
+        max_wait, waited = 120, 0
+        while hasattr(file_obj, "state") and file_obj.state.name == "PROCESSING":
+            if waited >= max_wait:
+                print("[transcribe] Timed out waiting for Gemini to process file.")
+                return ""
+            time.sleep(3)
+            waited += 3
+            file_obj = client.files.get(name=file_obj.name)
+
+        print(f"[transcribe] File ready: {file_obj.uri}")
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part.from_uri(file_uri=file_obj.uri, mime_type=mime_type),
+                types.Part.from_text(
+                    "Please provide a complete, verbatim transcription of all speech in this audio. "
+                    "Include every spoken word. Do not summarize — transcribe exactly what is said."
+                ),
+            ],
+        )
+
+        transcript = response.text.strip() if response.text else ""
+        print(f"[transcribe] Done: {len(transcript)} chars")
+        return transcript
+
+    except Exception as e:
+        print(f"[transcribe] Error: {e}")
+        return ""
+    finally:
+        # Clean up the Gemini-side copy of the file
+        try:
+            client.files.delete(name=file_obj.name)
+        except Exception:
+            pass
+
 @login_required
 def chat_page(request):
     documents = Document.objects.filter(user=request.user)
@@ -104,23 +175,20 @@ def upload_page(request):
 
                 with open(filepath, 'rb') as file_like:
                     if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
-                        # upload_audio now returns the Gemini transcript (or "" on failure)
-                        transcript = FastAPIClient.upload_audio(
-                            file_like, original_filename, filepath=filepath
-                        )
-                        doc_obj.pinecone_id = f"audio_{doc_id}"
+                        # Step 1: Transcribe speech directly from Django using Gemini Files API.
+                        # This runs in a daemon thread so there is no timeout constraint.
+                        transcript = _transcribe_audio_with_gemini(filepath, original_filename)
 
+                        # Step 2: Send to FastAPI for sound-event detection (fast, no Gemini call)
+                        FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
+
+                        doc_obj.pinecone_id = f"audio_{doc_id}"
                         if transcript and transcript.strip():
-                            # Store the real transcript so questions can be answered from it
                             doc_obj.content = transcript
-                            doc_obj.embedding_status = Document.EMBEDDING_DONE
                             print(f"[upload] Audio #{doc_id} transcribed: {len(transcript)} chars")
                         else:
-                            # Transcription failed but mark done so the user can still try
-                            # asking questions (ai_agent will fall back to general knowledge)
-                            doc_obj.embedding_status = Document.EMBEDDING_DONE
-                            print(f"[upload] Audio #{doc_id} processed (no transcript returned)")
-
+                            print(f"[upload] Audio #{doc_id} — transcription returned empty")
+                        doc_obj.embedding_status = Document.EMBEDDING_DONE
                         doc_obj.save()
                     else:
                         pinecone_id, fastapi_text = FastAPIClient.upload_document(

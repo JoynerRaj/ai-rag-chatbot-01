@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Dict, Any
 
 from audio.db import insert_events, execute_query
-from audio.event_detector import process_audio, transcribe_audio
+from audio.event_detector import process_audio
 from audio.query_parser import generate_sql_from_intent
 from audio.response_generator import generate_natural_language_answer
 
@@ -17,11 +17,12 @@ class AskRequest(BaseModel):
 @router.post("/upload-audio/")
 async def upload_audio(file: UploadFile = File(...)):
     """
-    Receives an audio file, transcribes its speech content using Gemini's
-    Files API, and stores any detected sound events in SQLite.
+    Receives an audio file, streams it to disk to avoid loading it into RAM,
+    runs the (mock) sound-event detector, and saves any detected events to SQLite.
 
-    Returns the full transcript so the Django layer can save it as
-    the document content for later question-answering.
+    NOTE: Speech transcription is handled separately by the Django service
+    using Gemini's Files API directly inside a background thread, so this
+    endpoint stays fast and never blocks the FastAPI event loop.
     """
     import os
     import tempfile
@@ -29,8 +30,8 @@ async def upload_audio(file: UploadFile = File(...)):
     if not file.filename.endswith((".wav", ".mp3", ".ogg", ".m4a")):
         raise HTTPException(status_code=400, detail="Unsupported audio format.")
 
-    # Write the incoming stream to a temp file in 64 KB chunks so we
-    # never hold the entire audio file in memory at once.
+    # Stream the incoming bytes to a temp file in 64 KB chunks so we never
+    # hold the entire audio in memory at once.
     temp_fd, temp_path = tempfile.mkstemp(suffix="_" + file.filename)
     try:
         with os.fdopen(temp_fd, "wb") as tmp:
@@ -42,12 +43,8 @@ async def upload_audio(file: UploadFile = File(...)):
 
         print(f"[audio] received {file.filename!r} → temp file {temp_path}")
 
-        # Transcribe the spoken content using Gemini
-        transcript = transcribe_audio(temp_path, file.filename)
-        print(f"[audio] transcript length: {len(transcript)} chars")
-
-        # Also run the sound-event detector (currently mock; swap in a real
-        # ML model like YAMNet here when ready)
+        # Sound-event detection (currently mock; swap in YAMNet / CLAP here).
+        # This runs fast because it just returns hardcoded data for now.
         events = process_audio(temp_path)
         if events:
             insert_events(events)
@@ -55,7 +52,6 @@ async def upload_audio(file: UploadFile = File(...)):
         return {
             "message": f"Processed {file.filename} — {len(events)} events detected.",
             "events_detected": len(events),
-            "transcript": transcript,
         }
 
     except Exception as e:
@@ -63,7 +59,7 @@ async def upload_audio(file: UploadFile = File(...)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Always clean up the temp file regardless of success or failure
+        # Always clean up regardless of success or failure
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -79,15 +75,13 @@ async def ask_audio_question(req: AskRequest) -> Dict[str, Any]:
     the result into a plain English response.
     """
     try:
-        # 1. Convert question to SQL
         sql_query = generate_sql_from_intent(req.question)
         print(f"[Audio RAG] Generated SQL: {sql_query}")
 
-        # 2. Execute SQL against the events database
         db_results = execute_query(sql_query)
         print(f"[Audio RAG] DB Results: {db_results}")
 
-        # 3. Generate a conversational answer (returns "" when no results)
+        # Returns "" when results are empty so the Django fallback chain triggers
         final_answer = generate_natural_language_answer(req.question, db_results)
 
         return {
