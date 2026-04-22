@@ -98,7 +98,7 @@ def upload_page(request):
                 
                 with open(filepath, 'rb') as file_like:
                     if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
-                        success = FastAPIClient.upload_audio(file_like, original_filename)
+                        success = FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
                         if success:
                             doc_obj.pinecone_id = f"audio_{doc_id}"
                             doc_obj.embedding_status = Document.EMBEDDING_DONE
@@ -109,7 +109,7 @@ def upload_page(request):
                         doc_obj.save()
                     else:
                         pinecone_id, fastapi_text = FastAPIClient.upload_document(
-                            file_like, filename=original_filename
+                            file_like, filename=original_filename, filepath=filepath
                         )
                         if pinecone_id:
                             doc_obj.pinecone_id = pinecone_id

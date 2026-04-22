@@ -31,7 +31,7 @@ class FastAPIClient:
         return False
 
     @classmethod
-    def upload_document(cls, file, filename: str = None) -> tuple[str, str]:
+    def upload_document(cls, file, filename: str = None, filepath: str = None) -> tuple[str, str]:
         """
         Send the document bytes to FastAPI so it can embed and store in Pinecone.
         Called from a background thread so we can safely wait/retry here.
@@ -48,29 +48,48 @@ class FastAPIClient:
                 time.sleep(30)
 
             try:
-                file.seek(0)
+                if filepath and os.path.exists(filepath):
+                    import subprocess
+                    import json
+                    print(f"[upload_document] Streaming via curl: {filepath}")
+                    result = subprocess.run([
+                        "curl", "-s", "-X", "POST", url,
+                        "-F", f"file=@{filepath};filename={fname};type=application/octet-stream"
+                    ], capture_output=True, text=True)
+                    
+                    if result.returncode == 0:
+                        try:
+                            res_json = json.loads(result.stdout)
+                            if "error" in res_json:
+                                print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
+                                return "", ""
+                            return res_json.get("document_id", ""), res_json.get("text", "")
+                        except Exception as e:
+                            print(f"[upload_document] Failed parsing JSON: {result.stdout}")
+                    else:
+                        print(f"[upload_document] Curl failed: {result.stderr}")
+                else:
+                    file.seek(0)
+                    res = requests.post(
+                        url,
+                        files={"file": (fname, file, "application/octet-stream")},
+                        timeout=90,
+                    )
+                    print(f"[upload_document] attempt {attempt + 1} - status={res.status_code}  file={fname!r}")
 
-                res = requests.post(
-                    url,
-                    files={"file": (fname, file, "application/octet-stream")},
-                    timeout=90,
-                )
+                    if res.status_code == 200:
+                        res_json = res.json()
+                        if "error" in res_json:
+                            print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
+                            return "", ""
+                        return res_json.get("document_id", ""), res_json.get("text", "")
 
-                print(f"[upload_document] attempt {attempt + 1} - status={res.status_code}  file={fname!r}")
+                    # 502/503/504 usually just means FastAPI is still starting, try again
+                    if res.status_code in (502, 503, 504):
+                        print(f"[upload_document] got {res.status_code}, retrying...")
+                        continue
 
-                if res.status_code == 200:
-                    res_json = res.json()
-                    if "error" in res_json:
-                        print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
-                        return "", ""
-                    return res_json.get("document_id", ""), res_json.get("text", "")
-
-                # 502/503/504 usually just means FastAPI is still starting, try again
-                if res.status_code in (502, 503, 504):
-                    print(f"[upload_document] got {res.status_code}, retrying...")
-                    continue
-
-                print(f"[upload_document] unexpected status {res.status_code}: {res.text[:200]}")
+                    print(f"[upload_document] unexpected status {res.status_code}: {res.text[:200]}")
 
             except requests.exceptions.Timeout:
                 print(f"[upload_document] attempt {attempt + 1} timed out, retrying...")
@@ -131,17 +150,40 @@ class FastAPIClient:
             print("Pinecone delete error:", e)
 
     @classmethod
-    def upload_audio(cls, file_like, filename: str) -> bool:
+    def upload_audio(cls, file_like, filename: str, filepath: str = None) -> bool:
         """Upload an audio file to the audio event extractor."""
         url = cls._base() + "/audio/upload-audio/"
         try:
-            file_like.seek(0)
-            res = requests.post(url, files={"file": (filename, file_like, "audio/mpeg")}, timeout=90)
-            if res.ok:
-                print(f"[upload_audio] Success: {res.json()}")
-                return True
-            print(f"[upload_audio] Failed {res.status_code}: {res.text}")
-            return False
+            if filepath and os.path.exists(filepath):
+                # Use curl to stream the file from disk with ZERO memory overhead
+                import subprocess
+                import json
+                
+                print(f"[upload_audio] Streaming via curl: {filepath}")
+                result = subprocess.run([
+                    "curl", "-s", "-X", "POST", url,
+                    "-F", f"file=@{filepath};filename={filename};type=audio/mpeg"
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    try:
+                        data = json.loads(result.stdout)
+                        print(f"[upload_audio] Success: {data}")
+                        return True
+                    except:
+                        print(f"[upload_audio] Failed parsing JSON: {result.stdout}")
+                else:
+                    print(f"[upload_audio] Curl failed: {result.stderr}")
+                return False
+            else:
+                # Fallback to requests (loads into memory, okay for small files)
+                file_like.seek(0)
+                res = requests.post(url, files={"file": (filename, file_like, "audio/mpeg")}, timeout=90)
+                if res.ok:
+                    print(f"[upload_audio] Success: {res.json()}")
+                    return True
+                print(f"[upload_audio] Failed {res.status_code}: {res.text}")
+                return False
         except Exception as e:
             print(f"[upload_audio] Error: {e}")
             return False
