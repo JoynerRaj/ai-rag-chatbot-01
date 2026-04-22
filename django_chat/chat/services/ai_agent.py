@@ -6,28 +6,62 @@ from chat.services.fastapi_client import FastAPIClient
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
 from chat.models import Document
 
-# short messages that clearly don't need a document search
+
 CASUAL_PHRASES = {
     "hi", "hello", "hey", "hii", "helo", "good morning", "good evening",
     "good afternoon", "how are you", "what's up", "whats up", "sup",
     "thanks", "thank you", "ok", "okay", "bye", "goodbye", "see you",
-    "great", "nice", "cool", "awesome", "got it", "understood"
+    "great", "nice", "cool", "awesome", "got it", "understood",
 }
 
-def _is_casual_message(text: str) -> bool:
-    """True only for obvious greetings and small talk, not actual questions."""
-    cleaned = text.strip().lower().rstrip("!?.,:;")
-    return cleaned in CASUAL_PHRASES
+
+def _is_casual(text):
+    return text.strip().lower().rstrip("!?.,:;") in CASUAL_PHRASES
+
+
+def _gemini_client():
+    return genai.Client(
+        api_key=os.getenv("GEMINI_API_KEY"),
+        http_options={"api_version": "v1alpha"},
+    )
+
+
+def _generate(client, system_instruction, user_message, chat_history=None):
+    """Build a contents list and call Gemini. Returns the answer text or ''."""
+    contents = []
+    if chat_history:
+        for turn in chat_history:
+            contents.append(types.Content(role="user", parts=[types.Part(text=turn["question"])]))
+            contents.append(types.Content(role="model", parts=[types.Part(text=turn["answer"])]))
+    contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
+
+    config = types.GenerateContentConfig(system_instruction=system_instruction)
+    for model in ("gemini-2.5-flash", "gemini-2.0-flash"):
+        try:
+            response = client.models.generate_content(model=model, contents=contents, config=config)
+            candidate = response.candidates[0]
+            if not candidate.content or not candidate.content.parts:
+                continue
+            text = "".join(
+                p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
+            ).strip()
+            if text:
+                return text
+        except Exception as e:
+            if "empty" in str(e).lower() or "output text" in str(e):
+                continue
+            raise
+    return ""
 
 
 class AIAgentService:
+
     @staticmethod
-    def process_query(query: str, document_id: str, user, chat_id: int, chat_history: list = None) -> str:
+    def process_query(query, document_id, user, chat_id, chat_history=None):
         try:
             user_id = user.id if (user and user.is_authenticated) else None
-            print(f"[{chat_id}] query={query!r}  doc_id={document_id!r}  user={user_id}")
+            print(f"[{chat_id}] query={query!r}  doc={document_id!r}  user={user_id}")
 
-            # make sure the user actually has documents that are ready in Pinecone
             if user and user.is_authenticated:
                 has_docs = Document.objects.filter(user=user, embedding_status="done").exists()
             else:
@@ -40,30 +74,24 @@ class AIAgentService:
                     "If you just uploaded one, wait a moment for embedding to finish, then try again."
                 )
 
-            # don't bother checking cache for hi/thanks, waste of time
-            if not _is_casual_message(query):
+            if not _is_casual(query):
                 cached = semantic_cache_get(query, document_id, user_id=user_id)
                 if cached:
-                    print(f"[{chat_id}] Cache HIT")
+                    print(f"[{chat_id}] cache hit")
                     return cached
 
-            # If the selected document is an audio document, try Audio Event RAG first,
-            # then fall back to answering from the stored transcript, and finally
-            # from Gemini's general knowledge about the document's topic.
+            # Audio document — try event RAG first, then fall back to the stored transcript
             if document_id and str(document_id).startswith("audio_"):
-                # Step 1: try the audio events SQLite RAG (works for event-detection audio)
                 try:
-                    print(f"[{chat_id}] Routing query to Audio RAG...")
                     audio_answer = FastAPIClient.ask_audio(query)
                     if audio_answer and audio_answer.strip():
                         if user_id is not None:
                             semantic_cache_set(query, audio_answer, document_id, user_id=user_id)
                         return audio_answer
                 except Exception as e:
-                    print(f"[{chat_id}] Audio RAG failed: {e}")
+                    print(f"[{chat_id}] audio event RAG error: {e}")
 
-                # Step 2: load the stored document content (may be a pasted transcript)
-                print(f"[{chat_id}] Audio RAG empty — loading stored doc content...")
+                # Load the transcript that was saved during upload
                 transcript = ""
                 doc_title = ""
                 try:
@@ -72,176 +100,84 @@ class AIAgentService:
                     transcript = doc_obj.content or ""
                     doc_title = doc_obj.title or ""
                 except Exception as e:
-                    print(f"[{chat_id}] Could not load audio doc: {e}")
+                    print(f"[{chat_id}] could not load audio doc: {e}")
 
-                gemini_client = genai.Client(
-                    api_key=os.getenv("GEMINI_API_KEY"),
-                    http_options={"api_version": "v1alpha"}
-                )
+                client = _gemini_client()
+                no_transcript = not transcript.strip() or transcript == "Audio file events mapped."
 
-                is_placeholder = (not transcript.strip() or transcript.strip() == "Audio file events mapped.")
-
-                if not is_placeholder:
-                    # Step 3a: real transcript available — answer from it
-                    print(f"[{chat_id}] Using stored transcript ({len(transcript)} chars)...")
-                    system_instruction = (
-                        "You are a helpful AI assistant. You are given the transcript of an audio file "
-                        "uploaded by the user. Answer the user's question based only on this transcript. "
-                        "Be specific and quote relevant parts where helpful."
+                if not no_transcript:
+                    system = (
+                        "You are a helpful assistant. Answer the user's question based only on the "
+                        "audio transcript provided. Be specific and quote relevant parts where helpful."
                     )
-                    user_message = (
-                        f"Here is the transcript of the audio:\n\n{transcript}\n\n"
-                        f"Answer this question based on the transcript:\n{query}"
-                    )
+                    message = f"Transcript:\n\n{transcript}\n\nQuestion: {query}"
                 else:
-                    # Step 3b: no transcript stored — answer from general knowledge
-                    # using the document title as context so Gemini knows the topic
-                    print(f"[{chat_id}] No transcript — using general knowledge fallback (title={doc_title!r})...")
-                    system_instruction = (
-                        "You are a helpful AI assistant. Answer the user's question as helpfully as possible "
-                        "based on your knowledge. The user has uploaded an audio file related to this topic "
-                        "but the transcript was not stored. Use your knowledge to answer."
+                    system = (
+                        "You are a helpful assistant. Answer based on your general knowledge. "
+                        "The user has uploaded an audio file but the transcript is not available."
                     )
-                    user_message = (
-                        f"The user uploaded an audio file titled: \"{doc_title}\".\n"
-                        f"Answer this question about it:\n{query}"
-                    )
+                    message = f'Audio file: "{doc_title}"\n\nQuestion: {query}'
 
-                contents = [types.Content(role="user", parts=[types.Part(text=user_message)])]
-                config = types.GenerateContentConfig(system_instruction=system_instruction)
-                try:
-                    response = gemini_client.models.generate_content(
-                        model="gemini-2.5-flash", contents=contents, config=config
-                    )
-                    candidate = response.candidates[0]
-                    if candidate.content and candidate.content.parts:
-                        answer = "".join([
-                            p.text for p in candidate.content.parts
-                            if hasattr(p, "text") and p.text
-                        ]).strip()
-                        if answer:
-                            if user_id is not None:
-                                semantic_cache_set(query, answer, document_id, user_id=user_id)
-                            if is_placeholder:
-                                answer += (
-                                    "\n\n> ⚠️ *Note: This answer is based on general knowledge. "
-                                    "For accurate answers from the actual audio, upload the transcript "
-                                    "as a `.txt` file.*"
-                                )
-                            return answer
-                except Exception as e:
-                    print(f"[{chat_id}] Gemini audio fallback failed: {e}")
+                answer = _generate(client, system, message)
+                if answer:
+                    if user_id is not None:
+                        semantic_cache_set(query, answer, document_id, user_id=user_id)
+                    if no_transcript:
+                        answer += (
+                            "\n\n> ⚠️ *This answer is from general knowledge — "
+                            "the audio transcript was not available.*"
+                        )
+                    return answer
 
-                return "I couldn't answer your question about this audio. Please try uploading the transcript as a text file."
+                return "I couldn't answer your question about this audio. Please try again."
 
-
-            # search Pinecone before calling Gemini so the answer is always
-            # grounded in the actual uploaded documents, not just general knowledge
+            # Regular document — search Pinecone then ask Gemini
             rag_context = ""
-            if not _is_casual_message(query):
+            if not _is_casual(query):
                 try:
                     rag_context = FastAPIClient.search_documents(query, document_id or "")
-                    print(f"[{chat_id}] RAG context: {len(rag_context)} chars")
+                    print(f"[{chat_id}] RAG: {len(rag_context)} chars")
                 except Exception as e:
-                    print(f"[{chat_id}] RAG search failed: {e}")
+                    print(f"[{chat_id}] RAG search error: {e}")
 
-            client = genai.Client(
-                api_key=os.getenv("GEMINI_API_KEY"),
-                http_options={"api_version": "v1alpha"}
+            client = _gemini_client()
+            has_context = (
+                rag_context
+                and "No relevant" not in rag_context
+                and "No sufficiently" not in rag_context
             )
 
-            has_real_context = rag_context and "No relevant" not in rag_context and "No sufficiently" not in rag_context
-
-            if has_real_context:
-                # tell Gemini to answer from the document, not from its training data
-                system_instruction = (
-                    "You are a helpful AI assistant. You have been given content from the user's uploaded documents. "
-                    "You also have the conversation history for this session - use it to remember the user's name, "
-                    "previous questions, and anything else they have shared. "
-                    "Base your answer on the document content provided. "
-                    "Do not say you couldn't find information - the content is there. Use it."
+            if has_context:
+                system = (
+                    "You are a helpful assistant. You have content from the user's uploaded documents "
+                    "and the conversation history. Base your answer on the document content provided."
+                )
+                message = (
+                    f"Document content:\n\n{rag_context}\n\n"
+                    f"Answer this using the content above:\n{query}"
                 )
             else:
-                # no great document match, just be a normal assistant
-                system_instruction = (
-                    "You are a helpful AI assistant. "
-                    "You have the conversation history for this session - remember anything the user has told you. "
+                system = (
+                    "You are a helpful assistant. You have the conversation history for context. "
                     "Answer the user's question as helpfully as you can."
                 )
+                message = query
 
-            # build conversation so Gemini has context from earlier in the chat
-            contents = []
-            if chat_history:
-                for past in chat_history:
-                    contents.append(types.Content(role="user", parts=[types.Part(text=past["question"])]))
-                    contents.append(types.Content(role="model", parts=[types.Part(text=past["answer"])]))
+            answer = _generate(client, system, message, chat_history=chat_history)
 
-            # attach the RAG context directly to the user's message so Gemini can't miss it
-            if has_real_context:
-                user_message = (
-                    f"Here is the relevant content from the uploaded documents:\n\n"
-                    f"{rag_context}\n\n"
-                    f"Answer this question using the document content above:\n{query}"
-                )
-            else:
-                user_message = query
-
-            contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
-
-            config = types.GenerateContentConfig(system_instruction=system_instruction)
-
-            # try 2.5-flash first, fall back to 2.0 if it gives an empty response
-            MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-2.0-flash"]
-            answer = ""
-
-            for model_name in MODELS_TO_TRY:
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=contents,
-                        config=config,
-                    )
-
-                    candidate = response.candidates[0]
-                    if not candidate.content or not candidate.content.parts:
-                        print(f"[{chat_id}] {model_name} came back empty, trying next...")
-                        continue
-
-                    answer = "".join([
-                        part.text
-                        for part in candidate.content.parts
-                        if hasattr(part, "text") and part.text
-                    ]).strip()
-
-                    if answer:
-                        print(f"[{chat_id}] [{model_name}] {answer[:80]!r}")
-                        break
-                    else:
-                        print(f"[{chat_id}] {model_name} returned no text, trying next...")
-
-                except Exception as model_err:
-                    err_str = str(model_err)
-                    if "must contain either output text or tool calls" in err_str or "empty" in err_str.lower():
-                        print(f"[{chat_id}] {model_name} empty-output error: {model_err}")
-                        continue
-                    raise
-
-            # save to cache only when the answer came from our documents
-            if has_real_context and answer and user_id is not None:
+            if has_context and answer and user_id is not None:
                 semantic_cache_set(query, answer, document_id, user_id=user_id)
 
-            return answer if answer else "I'm sorry, I couldn't generate a response. Please try again."
+            return answer or "I'm sorry, I couldn't generate a response. Please try again."
 
         except Exception as e:
-            print(f"[{chat_id}] ERROR: {e}")
+            print(f"[{chat_id}] unhandled error: {e}")
             traceback.print_exc()
-            error_msg = str(e)
-
-            if "503" in error_msg or "UNAVAILABLE" in error_msg:
-                return "The AI model is temporarily overloaded. Please wait a few seconds and try again."
-            elif "429" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
+            err = str(e)
+            if "503" in err or "UNAVAILABLE" in err:
+                return "The AI model is temporarily overloaded. Please try again in a few seconds."
+            if "429" in err or "quota" in err.lower() or "exhausted" in err.lower():
                 return "The AI service quota has been exceeded. Please try again later."
-            elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
-                return "There was an issue processing your request. Please try rephrasing your question."
-            else:
-                return "An unexpected error occurred. Please try again."
+            if "400" in err or "INVALID_ARGUMENT" in err:
+                return "There was an issue with your request. Please try rephrasing your question."
+            return "An unexpected error occurred. Please try again."

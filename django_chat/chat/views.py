@@ -16,75 +16,63 @@ def health_check(request):
     return HttpResponse("OK")
 
 
-def _transcribe_audio_with_gemini(filepath: str, filename: str) -> str:
-    """
-    Upload an audio file to Gemini's Files API and ask it to produce a
-    verbatim transcript of the speech.  Runs in a background thread so
-    there is no HTTP timeout to worry about.
-
-    Returns the transcript string, or "" if transcription fails.
-    """
-    import os
+def _transcribe_audio_with_gemini(filepath, filename):
+    """Upload audio to Gemini Files API and return a verbatim transcript."""
     import time
+    from google import genai
+    from google.genai import types
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("[transcribe] No GEMINI_API_KEY — skipping.")
         return ""
 
+    mime_map = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4"}
+    ext = filename.lower().rsplit(".", 1)[-1]
+    mime_type = mime_map.get(ext, "audio/mpeg")
+
+    client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
+    file_obj = None
     try:
-        from google import genai
-        from google.genai import types
-
-        ext = filename.lower().rsplit(".", 1)[-1]
-        mime_map = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "m4a": "audio/mp4"}
-        mime_type = mime_map.get(ext, "audio/mpeg")
-
-        client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
-
-        print(f"[transcribe] Uploading {filename!r} ({mime_type}) to Gemini Files API...")
+        print(f"[transcribe] uploading {filename!r} to Gemini...")
         with open(filepath, "rb") as f:
             file_obj = client.files.upload(
                 file=f,
                 config=types.UploadFileConfig(mime_type=mime_type, display_name=filename),
             )
 
-        # Wait until Gemini finishes processing (usually a few seconds)
-        max_wait, waited = 120, 0
+        waited = 0
         while hasattr(file_obj, "state") and file_obj.state.name == "PROCESSING":
-            if waited >= max_wait:
-                print("[transcribe] Timed out waiting for Gemini to process file.")
+            if waited >= 120:
+                print("[transcribe] timed out")
                 return ""
             time.sleep(3)
             waited += 3
             file_obj = client.files.get(name=file_obj.name)
-
-        print(f"[transcribe] File ready: {file_obj.uri}")
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[
                 types.Part.from_uri(file_uri=file_obj.uri, mime_type=mime_type),
                 types.Part.from_text(
-                    "Please provide a complete, verbatim transcription of all speech in this audio. "
-                    "Include every spoken word. Do not summarize — transcribe exactly what is said."
+                    "Provide a complete, verbatim transcription of all speech in this audio. "
+                    "Include every word — do not summarize."
                 ),
             ],
         )
 
         transcript = response.text.strip() if response.text else ""
-        print(f"[transcribe] Done: {len(transcript)} chars")
+        print(f"[transcribe] done: {len(transcript)} chars")
         return transcript
 
     except Exception as e:
-        print(f"[transcribe] Error: {e}")
+        print(f"[transcribe] error: {e}")
         return ""
     finally:
-        # Clean up the Gemini-side copy of the file
-        try:
-            client.files.delete(name=file_obj.name)
-        except Exception:
-            pass
+        if file_obj:
+            try:
+                client.files.delete(name=file_obj.name)
+            except Exception:
+                pass
 
 @login_required
 def chat_page(request):
@@ -173,39 +161,33 @@ def upload_page(request):
             try:
                 doc_obj = Document.objects.get(id=doc_id)
 
-                with open(filepath, 'rb') as file_like:
+                with open(filepath, "rb") as file_like:
                     if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
-                        # Step 1: Transcribe speech directly from Django using Gemini Files API.
-                        # This runs in a daemon thread so there is no timeout constraint.
                         transcript = _transcribe_audio_with_gemini(filepath, original_filename)
-
-                        # Step 2: Send to FastAPI for sound-event detection (fast, no Gemini call)
                         FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
 
                         doc_obj.pinecone_id = f"audio_{doc_id}"
-                        if transcript and transcript.strip():
+                        if transcript:
                             doc_obj.content = transcript
-                            print(f"[upload] Audio #{doc_id} transcribed: {len(transcript)} chars")
-                        else:
-                            print(f"[upload] Audio #{doc_id} — transcription returned empty")
                         doc_obj.embedding_status = Document.EMBEDDING_DONE
                         doc_obj.save()
                     else:
-                        pinecone_id, fastapi_text = FastAPIClient.upload_document(
+                        pinecone_id, extracted_text = FastAPIClient.upload_document(
                             file_like, filename=original_filename, filepath=filepath
                         )
                         if pinecone_id:
                             doc_obj.pinecone_id = pinecone_id
                             doc_obj.embedding_status = Document.EMBEDDING_DONE
-                            if fastapi_text and fastapi_text.strip():
-                                doc_obj.content = fastapi_text
-                            print(f"[upload] Doc #{doc_id} embedded - pinecone_id={pinecone_id!r}")
+                            if extracted_text and extracted_text.strip():
+                                doc_obj.content = extracted_text
+                            print(f"[upload] doc #{doc_id} embedded, pinecone_id={pinecone_id!r}")
                         else:
                             doc_obj.embedding_status = Document.EMBEDDING_FAILED
-                            print(f"[upload] Doc #{doc_id} embedding failed after retries")
+                            print(f"[upload] doc #{doc_id} embedding failed")
                         doc_obj.save()
+
             except Exception as e:
-                print(f"[upload] background embed crashed for doc #{doc_id}: {e}")
+                print(f"[upload] background thread error for doc #{doc_id}: {e}")
             finally:
                 if os.path.exists(filepath):
                     try:
