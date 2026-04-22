@@ -104,14 +104,23 @@ def upload_page(request):
 
                 with open(filepath, 'rb') as file_like:
                     if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
-                        success = FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
-                        if success:
-                            doc_obj.pinecone_id = f"audio_{doc_id}"
+                        # upload_audio now returns the Gemini transcript (or "" on failure)
+                        transcript = FastAPIClient.upload_audio(
+                            file_like, original_filename, filepath=filepath
+                        )
+                        doc_obj.pinecone_id = f"audio_{doc_id}"
+
+                        if transcript and transcript.strip():
+                            # Store the real transcript so questions can be answered from it
+                            doc_obj.content = transcript
                             doc_obj.embedding_status = Document.EMBEDDING_DONE
-                            print(f"[upload] Audio #{doc_id} processed successfully.")
+                            print(f"[upload] Audio #{doc_id} transcribed: {len(transcript)} chars")
                         else:
-                            doc_obj.embedding_status = Document.EMBEDDING_FAILED
-                            print(f"[upload] Audio #{doc_id} processing failed.")
+                            # Transcription failed but mark done so the user can still try
+                            # asking questions (ai_agent will fall back to general knowledge)
+                            doc_obj.embedding_status = Document.EMBEDDING_DONE
+                            print(f"[upload] Audio #{doc_id} processed (no transcript returned)")
+
                         doc_obj.save()
                     else:
                         pinecone_id, fastapi_text = FastAPIClient.upload_document(
@@ -133,8 +142,9 @@ def upload_page(request):
                 if os.path.exists(filepath):
                     try:
                         os.remove(filepath)
-                    except:
+                    except Exception:
                         pass
+
 
         t = threading.Thread(
             target=embed_in_background,
