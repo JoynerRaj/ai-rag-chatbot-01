@@ -39,57 +39,49 @@ class FastAPIClient:
         url = cls.get_base_url()
         fname = filename or getattr(file, 'name', None) or "upload.bin"
 
+        def stream_multipart(path, file_name, boundary):
+            yield f"--{boundary}\r\n".encode("utf-8")
+            yield f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'.encode("utf-8")
+            yield b'Content-Type: application/octet-stream\r\n\r\n'
+            with open(path, "rb") as f:
+                while chunk := f.read(65536):
+                    yield chunk
+            yield b"\r\n"
+            yield f"--{boundary}--\r\n".encode("utf-8")
+
         # try 3 times - FastAPI on Render free tier can take a minute to cold start
         MAX_ATTEMPTS = 3
         for attempt in range(MAX_ATTEMPTS):
             if attempt > 0:
-                # give FastAPI some time to finish waking up before we retry
                 print(f"[upload_document] waiting 30s before retry (attempt {attempt + 1})...")
                 time.sleep(30)
 
             try:
                 if filepath and os.path.exists(filepath):
-                    import subprocess
-                    import json
-                    print(f"[upload_document] Streaming via curl: {filepath}")
-                    result = subprocess.run([
-                        "curl", "-s", "-X", "POST", url,
-                        "-F", f"file=@{filepath};filename={fname};type=application/octet-stream"
-                    ], capture_output=True, text=True)
+                    print(f"[upload_document] Streaming via generator: {filepath}")
+                    import uuid
+                    boundary = uuid.uuid4().hex
+                    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
                     
-                    if result.returncode == 0:
-                        try:
-                            res_json = json.loads(result.stdout)
-                            if "error" in res_json:
-                                print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
-                                return "", ""
-                            return res_json.get("document_id", ""), res_json.get("text", "")
-                        except Exception as e:
-                            print(f"[upload_document] Failed parsing JSON: {result.stdout}")
-                    else:
-                        print(f"[upload_document] Curl failed: {result.stderr}")
+                    res = requests.post(url, data=stream_multipart(filepath, fname, boundary), headers=headers, timeout=90)
                 else:
                     file.seek(0)
-                    res = requests.post(
-                        url,
-                        files={"file": (fname, file, "application/octet-stream")},
-                        timeout=90,
-                    )
-                    print(f"[upload_document] attempt {attempt + 1} - status={res.status_code}  file={fname!r}")
+                    res = requests.post(url, files={"file": (fname, file, "application/octet-stream")}, timeout=90)
 
-                    if res.status_code == 200:
-                        res_json = res.json()
-                        if "error" in res_json:
-                            print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
-                            return "", ""
-                        return res_json.get("document_id", ""), res_json.get("text", "")
+                print(f"[upload_document] attempt {attempt + 1} - status={res.status_code}  file={fname!r}")
 
-                    # 502/503/504 usually just means FastAPI is still starting, try again
-                    if res.status_code in (502, 503, 504):
-                        print(f"[upload_document] got {res.status_code}, retrying...")
-                        continue
+                if res.status_code == 200:
+                    res_json = res.json()
+                    if "error" in res_json:
+                        print(f"[upload_document] FastAPI returned an error: {res_json['error']}")
+                        return "", ""
+                    return res_json.get("document_id", ""), res_json.get("text", "")
 
-                    print(f"[upload_document] unexpected status {res.status_code}: {res.text[:200]}")
+                if res.status_code in (502, 503, 504):
+                    print(f"[upload_document] got {res.status_code}, retrying...")
+                    continue
+
+                print(f"[upload_document] unexpected status {res.status_code}: {res.text[:200]}")
 
             except requests.exceptions.Timeout:
                 print(f"[upload_document] attempt {attempt + 1} timed out, retrying...")
@@ -153,27 +145,29 @@ class FastAPIClient:
     def upload_audio(cls, file_like, filename: str, filepath: str = None) -> bool:
         """Upload an audio file to the audio event extractor."""
         url = cls._base() + "/audio/upload-audio/"
+        
+        def stream_multipart(path, file_name, boundary):
+            yield f"--{boundary}\r\n".encode("utf-8")
+            yield f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'.encode("utf-8")
+            yield b'Content-Type: audio/mpeg\r\n\r\n'
+            with open(path, "rb") as f:
+                while chunk := f.read(65536):
+                    yield chunk
+            yield b"\r\n"
+            yield f"--{boundary}--\r\n".encode("utf-8")
+
         try:
             if filepath and os.path.exists(filepath):
-                # Use curl to stream the file from disk with ZERO memory overhead
-                import subprocess
-                import json
+                import uuid
+                boundary = uuid.uuid4().hex
+                headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
                 
-                print(f"[upload_audio] Streaming via curl: {filepath}")
-                result = subprocess.run([
-                    "curl", "-s", "-X", "POST", url,
-                    "-F", f"file=@{filepath};filename={filename};type=audio/mpeg"
-                ], capture_output=True, text=True)
-                
-                if result.returncode == 0:
-                    try:
-                        data = json.loads(result.stdout)
-                        print(f"[upload_audio] Success: {data}")
-                        return True
-                    except:
-                        print(f"[upload_audio] Failed parsing JSON: {result.stdout}")
-                else:
-                    print(f"[upload_audio] Curl failed: {result.stderr}")
+                print(f"[upload_audio] Streaming via generator: {filepath}")
+                res = requests.post(url, data=stream_multipart(filepath, filename, boundary), headers=headers, timeout=90)
+                if res.ok:
+                    print(f"[upload_audio] Success: {res.json()}")
+                    return True
+                print(f"[upload_audio] Failed {res.status_code}: {res.text}")
                 return False
             else:
                 # Fallback to requests (loads into memory, okay for small files)
