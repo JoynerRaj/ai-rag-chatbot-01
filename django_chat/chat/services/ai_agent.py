@@ -147,13 +147,7 @@ class AIAgentService:
                 and "No sufficiently" not in rag_context
             )
 
-            if not has_context:
-                if not _is_casual(query):
-                    return "I couldn't find any information about that in the uploaded document."
-                else:
-                    system = "You are a helpful assistant. You have the conversation history for context. Answer the user's greeting."
-                    message = query
-            else:
+            if has_context:
                 system = (
                     "You are a helpful assistant. You have content from the user's uploaded documents "
                     "and the conversation history. Base your answer on the document content provided."
@@ -162,11 +156,23 @@ class AIAgentService:
                     f"Document content:\n\n{rag_context}\n\n"
                     f"Answer this using the content above:\n{query}"
                 )
+            else:
+                system = (
+                    "You are a helpful assistant. The user asked a question, but no relevant information "
+                    "was found in their uploaded documents. Answer the question helpfully using your general knowledge."
+                )
+                message = query
 
             answer = _generate(client, system, message, chat_history=chat_history)
 
-            if answer and has_context and user_id is not None:
-                semantic_cache_set(query, answer, document_id, user_id=user_id)
+            if answer:
+                if has_context and user_id is not None:
+                    semantic_cache_set(query, answer, document_id, user_id=user_id)
+                elif not has_context and not _is_casual(query):
+                    answer += (
+                        "\n\n> ⚠️ *I couldn't find the exact answer in your uploaded documents, "
+                        "so this answer is based on general knowledge.*"
+                    )
 
             return answer or "I'm sorry, I couldn't generate a response. Please try again."
 
