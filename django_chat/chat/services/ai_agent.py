@@ -165,8 +165,17 @@ class AIAgentService:
 
             answer = _generate(client, system, message, chat_history=chat_history)
 
-            if has_context and answer and user_id is not None:
-                semantic_cache_set(query, answer, document_id, user_id=user_id)
+            if answer:
+                if has_context:
+                    if user_id is not None:
+                        semantic_cache_set(query, answer, document_id, user_id=user_id)
+                else:
+                    # If we used general knowledge for a real question, inform the user
+                    if not _is_casual(query):
+                        answer += (
+                            "\n\n> ⚠️ *This answer is from my general knowledge base. "
+                            "No relevant information was found in your uploaded documents.*"
+                        )
 
             return answer or "I'm sorry, I couldn't generate a response. Please try again."
 
