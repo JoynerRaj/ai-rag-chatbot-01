@@ -36,30 +36,21 @@ class FastAPIClient:
         url = cls.get_base_url()
         fname = filename or getattr(file, "name", None) or "upload.bin"
 
-        def _multipart_gen(path, file_name, boundary):
-            yield f"--{boundary}\r\n".encode()
-            yield f'Content-Disposition: form-data; name="file"; filename="{file_name}"\r\n'.encode()
-            yield b"Content-Type: application/octet-stream\r\n\r\n"
-            with open(path, "rb") as f:
-                while chunk := f.read(65536):
-                    yield chunk
-            yield b"\r\n"
-            yield f"--{boundary}--\r\n".encode()
 
         for attempt in range(3):
             if attempt > 0:
                 print(f"[upload_document] retry {attempt + 1} in 30s...")
                 time.sleep(30)
             try:
+                # Text/PDF documents are small enough to fit in memory.
+                # Avoid chunked transfer encoding (data=generator) as proxies often reject it.
                 if filepath and os.path.exists(filepath):
-                    boundary = uuid.uuid4().hex
-                    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
-                    res = requests.post(
-                        url,
-                        data=_multipart_gen(filepath, fname, boundary),
-                        headers=headers,
-                        timeout=90,
-                    )
+                    with open(filepath, "rb") as f:
+                        res = requests.post(
+                            url,
+                            files={"file": (fname, f, "application/octet-stream")},
+                            timeout=90,
+                        )
                 else:
                     file.seek(0)
                     res = requests.post(
