@@ -307,23 +307,6 @@
 </aside>
 
 <main class="main">
-  <!-- TOPBAR -->
-  <div class="topbar">
-    <div class="doc-pills">
-      <!-- Label removed as per request -->      <label>
-        <input type="radio" name="docPill" value="" checked>
-        <span>All Documents</span>
-      </label>
-      {% for doc in documents %}
-      {% if doc.embedding_status == "done" %}
-      <label>
-        <input type="radio" name="docPill" value="{{ doc.pinecone_id }}">
-        <span>{{ doc.title|truncatechars:20 }}</span>
-      </label>
-      {% endif %}
-      {% endfor %}
-    </div>
-  </div>
 
   <!-- CHAT BOX -->
   <div id="chat" class="chat-box">
