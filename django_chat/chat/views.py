@@ -79,13 +79,13 @@ def debug_embed_test(request):
     # step 5: get last database error
     try:
         from chat.models import Document
-        failed_doc = Document.objects.filter(embedding_status="failed").order_by("-created_at").first()
+        failed_doc = Document.objects.filter(embedding_status="failed").order_by("-uploaded_at").first()
         if failed_doc:
             results["last_failed_document"] = {
                 "id": failed_doc.id,
                 "title": failed_doc.title,
                 "error_trace": failed_doc.content,
-                "time": failed_doc.created_at.strftime("%Y-%m-%d %H:%M:%S") if failed_doc.created_at else "Unknown"
+                "time": failed_doc.uploaded_at.strftime("%Y-%m-%d %H:%M:%S") if failed_doc.uploaded_at else "Unknown"
             }
         else:
             results["last_failed_document"] = "No failed documents found"
