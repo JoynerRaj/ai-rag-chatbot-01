@@ -8,6 +8,7 @@ import threading
 
 from .models import Document, ChatHistory, ChatSession
 from chat.services.fastapi_client import FastAPIClient
+from chat.services import embedding_service
 from chat.services.document_service import DocumentExtractionService
 from .semantic_cache import invalidate_by_document, get_user_cache_entries, clear_user_cache
 from .redis_client import redis_client
@@ -161,33 +162,37 @@ def upload_page(request):
             try:
                 doc_obj = Document.objects.get(id=doc_id)
 
-                with open(filepath, "rb") as file_like:
-                    if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+                with open(filepath, "rb") as f:
+                    file_bytes = f.read()
+
+                if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+                    # audio path - still uses FastAPI for now
+                    with open(filepath, "rb") as file_like:
                         transcript = _transcribe_audio_with_gemini(filepath, original_filename)
                         FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
-
-                        doc_obj.pinecone_id = f"audio_{doc_id}"
-                        if transcript:
-                            doc_obj.content = transcript
-                        doc_obj.embedding_status = Document.EMBEDDING_DONE
-                        doc_obj.save()
-                    else:
-                        pinecone_id, extracted_text = FastAPIClient.upload_document(
-                            file_like, filename=original_filename, filepath=filepath
-                        )
-                        if pinecone_id:
-                            doc_obj.pinecone_id = pinecone_id
-                            doc_obj.embedding_status = Document.EMBEDDING_DONE
-                            if extracted_text and extracted_text.strip():
-                                doc_obj.content = extracted_text
-                            print(f"[upload] doc #{doc_id} embedded, pinecone_id={pinecone_id!r}")
-                        else:
-                            doc_obj.embedding_status = Document.EMBEDDING_FAILED
-                            print(f"[upload] doc #{doc_id} embedding failed")
-                        doc_obj.save()
+                    doc_obj.pinecone_id = f"audio_{doc_id}"
+                    if transcript:
+                        doc_obj.content = transcript
+                    doc_obj.embedding_status = Document.EMBEDDING_DONE
+                    doc_obj.save()
+                else:
+                    # embed directly in Django - no FastAPI cold-start issues
+                    pinecone_id = embedding_service.embed_and_store(file_bytes, original_filename)
+                    doc_obj.pinecone_id = pinecone_id
+                    doc_obj.embedding_status = Document.EMBEDDING_DONE
+                    print(f"[upload] doc #{doc_id} embedded locally, pinecone_id={pinecone_id!r}")
+                    doc_obj.save()
 
             except Exception as e:
-                print(f"[upload] background thread error for doc #{doc_id}: {e}")
+                print(f"[upload] background embed failed for doc #{doc_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                try:
+                    doc_obj = Document.objects.get(id=doc_id)
+                    doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                    doc_obj.save()
+                except Exception:
+                    pass
             finally:
                 if os.path.exists(filepath):
                     try:

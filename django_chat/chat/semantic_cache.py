@@ -27,20 +27,12 @@ def _build_key_prefix(user_id):
 
 
 def _get_embedding(text: str) -> list:
-    """Ask the FastAPI /embed endpoint for a vector representation of the text."""
+    """Get an embedding vector for the text using Google's embedding model."""
     try:
-        import requests
-        fastapi_url = os.environ.get("FASTAPI_URL", "https://ai-rag-chatbot-01.onrender.com/upload")
-        embed_api = fastapi_url.replace("/upload", "") + "/embed"
-
-        res = requests.post(embed_api, json={"text": text}, timeout=15)
-        if res.ok:
-            return res.json().get("embedding")
-        else:
-            print(f"[SemanticCache] /embed returned {res.status_code}")
-            return None
+        from chat.services.embedding_service import _embed_text
+        return _embed_text(text)
     except Exception as e:
-        print(f"[SemanticCache] Embedding request failed: {e}")
+        print(f"[SemanticCache] Embedding failed: {e}")
         return None
 
 

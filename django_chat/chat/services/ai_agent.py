@@ -2,7 +2,7 @@ import os
 import traceback
 from google import genai
 from google.genai import types
-from chat.services.fastapi_client import FastAPIClient
+from chat.services import embedding_service
 from chat.semantic_cache import semantic_cache_get, semantic_cache_set
 from chat.models import Document
 
@@ -135,7 +135,7 @@ class AIAgentService:
             rag_context = ""
             if not _is_casual(query):
                 try:
-                    rag_context = FastAPIClient.search_documents(query, document_id or "")
+                    rag_context = embedding_service.search_documents(query, document_id or None)
                     print(f"[{chat_id}] RAG: {len(rag_context)} chars")
                 except Exception as e:
                     print(f"[{chat_id}] RAG search error: {e}")
