@@ -149,12 +149,14 @@ class AIAgentService:
 
             if has_context:
                 system = (
-                    "You are a helpful assistant. You have content from the user's uploaded documents "
-                    "and the conversation history. Base your answer on the document content provided."
+                    "You are a helpful AI assistant. You have content from the user's uploaded documents. "
+                    "First, try to answer the question using the provided document content. "
+                    "However, if the document content is completely unrelated to the user's question or does not contain the answer, "
+                    "do NOT apologize or mention that the document lacks the information. Instead, just answer the question normally and fully using your general knowledge."
                 )
                 message = (
                     f"Document content:\n\n{rag_context}\n\n"
-                    f"Answer this using the content above:\n{query}"
+                    f"User Question:\n{query}"
                 )
             else:
                 system = (
