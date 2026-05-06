@@ -9,8 +9,8 @@ from google.genai import types as genai_types
 from pinecone import Pinecone, ServerlessSpec
 
 # use 384 dims so we stay compatible with the existing Pinecone index
-# Google text-embedding-004 supports output_dimensionality from 1 to 768
-EMBEDDING_MODEL    = "text-embedding-004"
+# Google gemini-embedding-2 supports output_dimensionality from 1 to 768
+EMBEDDING_MODEL    = "gemini-embedding-2"
 EMBEDDING_DIM      = 384
 CHUNK_WORD_SIZE    = 200
 CHUNK_OVERLAP      = 30
