@@ -145,8 +145,10 @@ def _transcribe_audio_with_gemini(filepath, filename):
         return transcript
 
     except Exception as e:
-        print(f"[transcribe] error: {e}")
-        return ""
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[transcribe] error: {e}\n{error_trace}")
+        raise e
     finally:
         if file_obj:
             try:
