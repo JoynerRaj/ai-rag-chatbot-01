@@ -98,6 +98,7 @@ def debug_embed_test(request):
 def _transcribe_audio_with_gemini(filepath, filename):
     """Upload audio to Gemini Files API and return a verbatim transcript."""
     import time
+    import os
     from google import genai
     from google.genai import types
 
@@ -109,7 +110,7 @@ def _transcribe_audio_with_gemini(filepath, filename):
     ext = filename.lower().rsplit(".", 1)[-1]
     mime_type = mime_map.get(ext, "audio/mpeg")
 
-    client = genai.Client(api_key=api_key, http_options={"api_version": "v1alpha"})
+    client = genai.Client(api_key=api_key)
     file_obj = None
     try:
         print(f"[transcribe] uploading {filename!r} to Gemini...")
