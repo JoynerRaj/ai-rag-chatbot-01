@@ -76,6 +76,22 @@ def debug_embed_test(request):
     except Exception as e:
         results["pinecone_connect"] = f"FAILED: {e}\n{traceback.format_exc()}"
 
+    # step 5: get last database error
+    try:
+        from chat.models import Document
+        failed_doc = Document.objects.filter(embedding_status="failed").order_by("-created_at").first()
+        if failed_doc:
+            results["last_failed_document"] = {
+                "id": failed_doc.id,
+                "title": failed_doc.title,
+                "error_trace": failed_doc.content,
+                "time": failed_doc.created_at.strftime("%Y-%m-%d %H:%M:%S") if failed_doc.created_at else "Unknown"
+            }
+        else:
+            results["last_failed_document"] = "No failed documents found"
+    except Exception as e:
+        results["last_failed_document"] = f"FAILED TO READ DB: {e}"
+
     return JsonResponse(results, json_dumps_params={"indent": 2})
 
 
