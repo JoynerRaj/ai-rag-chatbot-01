@@ -134,12 +134,12 @@ def embed_and_store(file_bytes: bytes, filename: str) -> str:
         })
         # batch upsert every 50 vectors to stay within Pinecone request limits
         if len(vectors) >= 50:
-            index.upsert(vectors)
+            index.upsert(vectors=vectors)
             print(f"[embed] upserted batch at chunk {i + 1}/{len(chunks)}")
             vectors = []
 
     if vectors:
-        index.upsert(vectors)
+        index.upsert(vectors=vectors)
 
     print(f"[embed] done — doc_id={document_id!r}  chunks={len(chunks)}")
     return document_id
