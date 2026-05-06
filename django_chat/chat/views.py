@@ -387,6 +387,9 @@ def upload_chunk(request):
             doc_obj = Document.objects.get(id=doc_id)
 
             with open(filepath, "rb") as file_like:
+                file_bytes = file_like.read()
+                file_like.seek(0)
+                
                 if orig_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
                     success = FastAPIClient.upload_audio(file_like, orig_filename, filepath=filepath)
                     if success:
@@ -398,21 +401,22 @@ def upload_chunk(request):
                         print(f"[chunk] Audio #{doc_id} processing failed.")
                     doc_obj.save()
                 else:
-                    pinecone_id, fastapi_text = FastAPIClient.upload_document(
-                        file_like, filename=orig_filename, filepath=filepath
-                    )
-                    if pinecone_id:
-                        doc_obj.pinecone_id = pinecone_id
-                        doc_obj.embedding_status = Document.EMBEDDING_DONE
-                        if fastapi_text and fastapi_text.strip():
-                            doc_obj.content = fastapi_text
-                        print(f"[chunk] Doc #{doc_id} embedded - pinecone_id={pinecone_id!r}")
-                    else:
-                        doc_obj.embedding_status = Document.EMBEDDING_FAILED
-                        print(f"[chunk] Doc #{doc_id} embedding failed after retries")
+                    pinecone_id = embedding_service.embed_and_store(file_bytes, orig_filename)
+                    doc_obj.pinecone_id = pinecone_id
+                    doc_obj.embedding_status = Document.EMBEDDING_DONE
+                    print(f"[chunk] Doc #{doc_id} embedded locally - pinecone_id={pinecone_id!r}")
                     doc_obj.save()
         except Exception as e:
-            print(f"[chunk] background embed crashed for doc #{doc_id}: {e}")
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"[chunk] background embed crashed for doc #{doc_id}:\n{error_trace}")
+            try:
+                doc_obj = Document.objects.get(id=doc_id)
+                doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                doc_obj.content = f"EMBEDDING FAILED:\n\n{error_trace}"
+                doc_obj.save()
+            except Exception:
+                pass
         finally:
             if os.path.exists(filepath):
                 try:
@@ -435,10 +439,10 @@ def document_list(request):
 def delete_document(request, id):
     doc = get_object_or_404(Document, id=id, user=request.user)
 
-    # try to remove from Pinecone - if FastAPI is down, still delete from DB
-    if doc.pinecone_id:
+    # try to remove from Pinecone
+    if doc.pinecone_id and not doc.pinecone_id.startswith("audio_"):
         try:
-            FastAPIClient.delete_document(doc.pinecone_id)
+            embedding_service.delete_document(doc.pinecone_id)
         except Exception as e:
             print("Pinecone delete failed (continuing with DB delete):", e)
 
