@@ -166,12 +166,8 @@ LOGIN_URL          = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 
-# allauth account settings
-ACCOUNT_SIGNUP_FIELDS         = ['email*', 'password1*', 'password2*']  # * = required
-ACCOUNT_LOGIN_METHODS         = {'email'}    # login with email address (password always implied)
-ACCOUNT_EMAIL_VERIFICATION    = 'none'   # set to 'mandatory' in production
-
-# Use our custom templates
-ACCOUNT_SIGNUP_TEMPLATE   = 'account/signup.html'
-ACCOUNT_LOGIN_TEMPLATE    = 'account/login.html'
+# allauth settings
+ACCOUNT_SIGNUP_FIELDS      = ['email*', 'password1*', 'password2*']  # * = required
+ACCOUNT_LOGIN_METHODS      = {'email'}   # log in with email only
+ACCOUNT_EMAIL_VERIFICATION = 'none'      # turn on 'mandatory' in production if email is set up
 
