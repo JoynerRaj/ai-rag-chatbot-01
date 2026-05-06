@@ -12,8 +12,8 @@ import os
 
 from .redis_client import redis_client
 
-# if similarity is above 70% we consider it the same question
-SIMILARITY_THRESHOLD = 0.70
+# if similarity is above 92% we consider it the same question
+SIMILARITY_THRESHOLD = 0.92
 
 # user_id in the key keeps each person's cache separate
 EMB_KEY_PREFIX = "chat:emb:"
