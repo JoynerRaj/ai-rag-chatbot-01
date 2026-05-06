@@ -246,12 +246,14 @@ def upload_page(request):
                     doc_obj.save()
 
             except Exception as e:
-                print(f"[upload] background embed failed for doc #{doc_id}: {e}")
                 import traceback
-                traceback.print_exc()
+                error_trace = traceback.format_exc()
+                print(f"[upload] background embed failed for doc #{doc_id}:\n{error_trace}")
                 try:
                     doc_obj = Document.objects.get(id=doc_id)
                     doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                    # Save the error to the document content so we can see what broke
+                    doc_obj.content = f"EMBEDDING FAILED:\n\n{error_trace}"
                     doc_obj.save()
                 except Exception:
                     pass
