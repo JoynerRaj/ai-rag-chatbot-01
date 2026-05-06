@@ -17,6 +17,68 @@ def health_check(request):
     return HttpResponse("OK")
 
 
+def debug_embed_test(request):
+    """
+    Diagnostic endpoint - visit /debug/embed/ to see exactly what's failing.
+    Tests each step and returns JSON with pass/fail and the exact error.
+    """
+    import os, traceback
+    results = {}
+
+    # step 1: check env vars
+    results["env_vars"] = {
+        "GEMINI_API_KEY": bool(os.environ.get("GEMINI_API_KEY")),
+        "PINECONE_API_KEY": bool(os.environ.get("PINECONE_API_KEY")),
+        "PINECONE_INDEX_NAME": os.environ.get("PINECONE_INDEX_NAME", "(not set - using default rag-index)"),
+        "PINECONE_CLOUD": os.environ.get("PINECONE_CLOUD", "(not set - using default aws)"),
+        "PINECONE_REGION": os.environ.get("PINECONE_REGION", "(not set - using default us-east-1)"),
+    }
+
+    # step 2: test imports
+    try:
+        import fitz
+        results["import_fitz"] = "OK"
+    except Exception as e:
+        results["import_fitz"] = f"FAILED: {e}"
+
+    try:
+        import docx
+        results["import_docx"] = "OK"
+    except Exception as e:
+        results["import_docx"] = f"FAILED: {e}"
+
+    try:
+        from pinecone import Pinecone
+        results["import_pinecone"] = "OK"
+    except Exception as e:
+        results["import_pinecone"] = f"FAILED: {e}"
+
+    try:
+        from google import genai
+        results["import_genai"] = "OK"
+    except Exception as e:
+        results["import_genai"] = f"FAILED: {e}"
+
+    # step 3: test Google embedding
+    try:
+        from chat.services.embedding_service import _embed_text
+        vec = _embed_text("hello world test")
+        results["google_embed"] = f"OK - got {len(vec)} dimensions"
+    except Exception as e:
+        results["google_embed"] = f"FAILED: {e}\n{traceback.format_exc()}"
+
+    # step 4: test Pinecone connection
+    try:
+        from chat.services.embedding_service import _get_pinecone_index
+        idx = _get_pinecone_index()
+        stats = idx.describe_index_stats()
+        results["pinecone_connect"] = f"OK - {stats.total_vector_count} vectors in index"
+    except Exception as e:
+        results["pinecone_connect"] = f"FAILED: {e}\n{traceback.format_exc()}"
+
+    return JsonResponse(results, json_dumps_params={"indent": 2})
+
+
 def _transcribe_audio_with_gemini(filepath, filename):
     """Upload audio to Gemini Files API and return a verbatim transcript."""
     import time
