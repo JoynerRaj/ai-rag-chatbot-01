@@ -17,17 +17,19 @@ class FastAPIClient:
 
     @classmethod
     def wake_up(cls):
+        """Ping FastAPI until it responds. Waits up to ~3 minutes for cold start."""
         url = cls._base() + "/"
-        for attempt in range(6):
+        print(f"[wake_up] pinging {url} ...")
+        for attempt in range(20):  # 20 × 10s = up to 3.3 minutes
             try:
-                res = requests.get(url, timeout=8)
+                res = requests.get(url, timeout=12)
                 if res.ok:
-                    print(f"FastAPI up after {attempt + 1} attempt(s)")
+                    print(f"[wake_up] FastAPI is up (attempt {attempt + 1})")
                     return True
             except Exception as e:
-                print(f"Wake attempt {attempt + 1} failed: {e}")
-            time.sleep(3)
-        print("FastAPI didn't respond in time")
+                print(f"[wake_up] attempt {attempt + 1}/20 failed: {e}")
+            time.sleep(10)
+        print("[wake_up] FastAPI never responded - giving up")
         return False
 
     @classmethod
@@ -36,27 +38,31 @@ class FastAPIClient:
         url = cls.get_base_url()
         fname = filename or getattr(file, "name", None) or "upload.bin"
 
+        # wait for FastAPI to wake up before trying to upload
+        # on Render free tier it can take 60-90 seconds to cold start
+        if not cls.wake_up():
+            print(f"[upload_document] FastAPI never came up - aborting {fname!r}")
+            return "", ""
 
+        # FastAPI is alive, now attempt the upload with a generous timeout
         for attempt in range(3):
             if attempt > 0:
-                print(f"[upload_document] retry {attempt + 1} in 30s...")
-                time.sleep(30)
+                print(f"[upload_document] retry {attempt + 1}/3 in 15s...")
+                time.sleep(15)
             try:
-                # Text/PDF documents are small enough to fit in memory.
-                # Avoid chunked transfer encoding (data=generator) as proxies often reject it.
                 if filepath and os.path.exists(filepath):
                     with open(filepath, "rb") as f:
                         res = requests.post(
                             url,
                             files={"file": (fname, f, "application/octet-stream")},
-                            timeout=90,
+                            timeout=120,
                         )
                 else:
                     file.seek(0)
                     res = requests.post(
                         url,
                         files={"file": (fname, file, "application/octet-stream")},
-                        timeout=90,
+                        timeout=120,
                     )
 
                 print(f"[upload_document] attempt {attempt + 1} → {res.status_code}")
@@ -64,21 +70,22 @@ class FastAPIClient:
                 if res.status_code == 200:
                     data = res.json()
                     if "error" in data:
-                        print(f"[upload_document] error from FastAPI: {data['error']}")
+                        print(f"[upload_document] FastAPI error: {data['error']}")
                         return "", ""
                     return data.get("document_id", ""), data.get("text", "")
 
                 if res.status_code in (502, 503, 504):
+                    print(f"[upload_document] got {res.status_code}, retrying...")
                     continue
 
                 print(f"[upload_document] unexpected {res.status_code}: {res.text[:200]}")
 
             except requests.exceptions.Timeout:
-                print(f"[upload_document] attempt {attempt + 1} timed out")
+                print(f"[upload_document] attempt {attempt + 1} timed out (120s)")
             except Exception as e:
                 print(f"[upload_document] attempt {attempt + 1} error: {e}")
 
-        print(f"[upload_document] all retries failed for {fname!r}")
+        print(f"[upload_document] all retries exhausted for {fname!r}")
         return "", ""
 
     @classmethod
