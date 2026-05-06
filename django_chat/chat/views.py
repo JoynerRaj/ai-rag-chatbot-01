@@ -134,8 +134,8 @@ def _transcribe_audio_with_gemini(filepath, filename):
             contents=[
                 types.Part.from_uri(file_uri=file_obj.uri, mime_type=mime_type),
                 types.Part.from_text(
-                    "Provide a complete, verbatim transcription of all speech in this audio. "
-                    "Include every word — do not summarize."
+                    text="Provide a complete, verbatim transcription of all speech in this audio. "
+                         "Include every word — do not summarize."
                 ),
             ],
         )
