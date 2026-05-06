@@ -244,14 +244,21 @@ def upload_page(request):
                     file_bytes = f.read()
 
                 if original_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
-                    # audio path - still uses FastAPI for now
-                    with open(filepath, "rb") as file_like:
-                        transcript = _transcribe_audio_with_gemini(filepath, original_filename)
-                        FastAPIClient.upload_audio(file_like, original_filename, filepath=filepath)
-                    doc_obj.pinecone_id = f"audio_{doc_id}"
-                    if transcript:
+                    transcript = _transcribe_audio_with_gemini(filepath, original_filename)
+                    if transcript and transcript.strip():
                         doc_obj.content = transcript
-                    doc_obj.embedding_status = Document.EMBEDDING_DONE
+                        # Trick the extractor into reading the transcript as plain text
+                        pinecone_id = embedding_service.embed_and_store(
+                            transcript.encode("utf-8"), 
+                            original_filename + ".txt"
+                        )
+                        doc_obj.pinecone_id = pinecone_id
+                        doc_obj.embedding_status = Document.EMBEDDING_DONE
+                        print(f"[upload] Audio #{doc_id} transcribed and embedded locally.")
+                    else:
+                        doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                        doc_obj.content = "EMBEDDING FAILED:\n\nAudio transcription returned no text."
+                        print(f"[upload] Audio #{doc_id} transcription failed.")
                     doc_obj.save()
                 else:
                     # embed directly in Django - no FastAPI cold-start issues
@@ -407,13 +414,19 @@ def upload_chunk(request):
                 file_like.seek(0)
                 
                 if orig_filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
-                    success = FastAPIClient.upload_audio(file_like, orig_filename, filepath=filepath)
-                    if success:
-                        doc_obj.pinecone_id = f"audio_{doc_id}"
+                    transcript = _transcribe_audio_with_gemini(filepath, orig_filename)
+                    if transcript and transcript.strip():
+                        doc_obj.content = transcript
+                        pinecone_id = embedding_service.embed_and_store(
+                            transcript.encode("utf-8"), 
+                            orig_filename + ".txt"
+                        )
+                        doc_obj.pinecone_id = pinecone_id
                         doc_obj.embedding_status = Document.EMBEDDING_DONE
-                        print(f"[chunk] Audio #{doc_id} processed successfully.")
+                        print(f"[chunk] Audio #{doc_id} transcribed and embedded locally.")
                     else:
                         doc_obj.embedding_status = Document.EMBEDDING_FAILED
+                        doc_obj.content = "EMBEDDING FAILED:\n\nAudio transcription returned no text."
                         print(f"[chunk] Audio #{doc_id} processing failed.")
                     doc_obj.save()
                 else:
