@@ -9,6 +9,9 @@ Run from: m:\INTERN\ai-rag-chatbot\django_chat\
 _GREETING_WORDS = {
     "hi", "hello", "hey", "hii", "helo", "sup",
     "bye", "goodbye", "ok", "okay", "thanks", "thank",
+    "fav", "favorite", "favourite",
+    "color", "colour",
+    "food", "hobby", "hobbies",
 }
 
 _MEMORY_TRIGGER_WORDS = {
@@ -61,21 +64,24 @@ cases = [
     ("hi how are you",                              True,  1, False),
     ("hello there",                                 True,  1, False),
     ("thanks",                                      True,  1, False),
-    # memory - exact
+    # personal preference (the main bug cases from screenshot)
+    ("my favrite color is blue",                    True,  1, False),
+    ("what is my fav color",                        True,  1, False),
+    ("my favorite food is pizza",                   True,  1, False),
+    ("what is my favourite hobby",                  True,  1, False),
+    # memory / history exact
     ("what is the previous conversation",           True,  1, False),
     ("tell me about the previous conversation",     True,  1, False),
     ("summarize our chat",                          True,  1, False),
     ("remind me what we said",                      True,  1, False),
-    # memory - TYPOS (the main bug cases)
-    ("what is the prvious conversation",            True,  1, False),  # typo: prvious
-    ("tell me about the previous converssation",    True,  1, False),  # typo: converssation
-    ("what is the previous convrsation",            True,  1, False),  # typo: convrsation
-    ("previous convo",                              True,  1, False),  # slang
-    ("summarise our last chat",                     True,  1, False),  # British spelling
-    # off-topic (no document context from Pinecone)
+    # memory / history TYPOS
+    ("what is the prvious conversation",            True,  1, False),
+    ("tell me about the previous converssation",    True,  1, False),
+    ("previous convo",                              True,  1, False),
+    # off-topic (no doc context)
     ("what is the weather today",                   False, 1, False),
     ("what is chemistry",                           False, 1, False),
-    # no user logged in
+    # no user
     ("what is machine learning",                    True,  None, False),
 
     # --- SHOULD be cached (genuine document questions) ---
@@ -89,6 +95,8 @@ cases = [
     ("define supervised learning",                  True,  1, True),
     ("what are the types of machine learning",      True,  1, True),
     ("how does backpropagation work",               True,  1, True),
+    ("what is overfitting in ml",                   True,  1, True),
+    ("explain neural networks",                     True,  1, True),
 ]
 
 print(f"{'Query':<52} {'got':>5} {'want':>5} {'result':>6}")

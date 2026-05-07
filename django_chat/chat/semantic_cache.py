@@ -18,10 +18,14 @@ SIMILARITY_THRESHOLD = 0.92
 RAG_KEY_PREFIX = "rag:doc:"
 RAG_TTL = 7200  # 2 hours
 
-# Greeting words — if any of these appear in the query, it is not a document question
+# Words that mark a query as non-document — greeting words OR personal preference words
 _GREETING_WORDS = {
     "hi", "hello", "hey", "hii", "helo", "sup",
     "bye", "goodbye", "ok", "okay", "thanks", "thank",
+    # personal preference / lifestyle — never in a document question
+    "fav", "favorite", "favourite",
+    "color", "colour",
+    "food", "hobby", "hobbies",
 }
 
 # Single words that indicate a memory/history request — block caching immediately

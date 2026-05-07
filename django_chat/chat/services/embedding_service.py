@@ -170,7 +170,7 @@ def search_documents(query: str, document_id: str = None, top_k: int = 8) -> str
             snippet = str(m.metadata.get("text", ""))[:60] if m.metadata else ""
             print(f"[search] score={m.score:.3f}  text={snippet!r}")
 
-        THRESHOLD = 0.55
+        THRESHOLD = 0.70
         relevant  = [m for m in matches if m.score >= THRESHOLD]
 
         if not relevant:
