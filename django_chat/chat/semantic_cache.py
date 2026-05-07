@@ -35,21 +35,49 @@ _HISTORY_KEYWORDS = (
 )
 
 
+# Greeting words that make a query non-cacheable even if combined in a longer string.
+# e.g. "hi how are you" contains "hi" so it must NOT be cached.
+_GREETING_WORDS = {
+    "hi", "hello", "hey", "hii", "helo", "sup",
+    "bye", "goodbye", "ok", "okay",
+}
+
+# Very short queries (below this word count) are almost always small talk.
+# "what is f1 score" = 4 words → cached. "hi there" = 2 words → not cached.
+_MIN_WORDS_TO_CACHE = 3
+
+
 def should_cache(query: str, has_document_context: bool) -> bool:
     """
-    Returns True only when the answer is worth caching.
-    Rules:
-      1. The response must have come from an actual uploaded document.
-      2. The question must not be small talk or a history/summary request.
+    Returns True only when it makes sense to cache this answer.
+
+    Rules (all must pass):
+      1. The answer must have come from an actual uploaded document.
+      2. The query must not be an exact match for a small-talk phrase.
+      3. None of the individual words can be a greeting word.
+      4. The query must be at least 3 words long.
+      5. The query must not reference conversation history or summaries.
     """
     if not has_document_context:
         return False
 
     q = query.strip().lower().rstrip("!?.,:;")
 
+    # exact full-phrase match
     if q in _NO_CACHE_PHRASES:
         return False
 
+    words = q.split()
+
+    # any greeting word anywhere in the query → skip
+    if any(w in _GREETING_WORDS for w in words):
+        return False
+
+    # too short to be a real knowledge question
+    if len(words) < _MIN_WORDS_TO_CACHE:
+        return False
+
+    # references to conversation history
     for pattern in _HISTORY_KEYWORDS:
         if pattern in q:
             return False
