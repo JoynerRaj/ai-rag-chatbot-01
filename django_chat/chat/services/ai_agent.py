@@ -194,8 +194,8 @@ class AIAgentService:
                     yield chunk
                 
                 if full_answer:
-                    # only cache if the answer actually came from a document
-                    if has_context and should_cache(query, has_document_context=True) and user_id is not None:
+                    # cache only when: answer came from a document AND user selected a specific doc
+                    if has_context and document_id and should_cache(query, has_document_context=True) and user_id is not None:
                         semantic_cache_set(query, full_answer, document_id, user_id=user_id)
                         print(f"[{chat_id}] cached doc answer for doc={document_id!r}")
                     elif not has_context and not _is_casual(query):
@@ -207,8 +207,8 @@ class AIAgentService:
             else:
                 answer = generator
                 if answer:
-                    # only cache if the answer actually came from a document
-                    if has_context and should_cache(query, has_document_context=True) and user_id is not None:
+                    # cache only when: answer came from a document AND user selected a specific doc
+                    if has_context and document_id and should_cache(query, has_document_context=True) and user_id is not None:
                         semantic_cache_set(query, answer, document_id, user_id=user_id)
                         print(f"[{chat_id}] cached doc answer for doc={document_id!r}")
                     elif not has_context and not _is_casual(query):
