@@ -24,12 +24,27 @@ _GREETING_WORDS = {
     "bye", "goodbye", "ok", "okay", "thanks", "thank",
 }
 
-# Patterns that reference conversation memory, not document content
-_MEMORY_PATTERNS = (
-    "previous conversation", "last message", "what did we talk",
-    "summarize our", "summarize the chat", "earlier you said",
-    "what was my", "remind me", "our conversation",
-)
+# Single words that almost always indicate a memory/history request — not a document question.
+# These are too risky to cache even if combined with other words.
+_MEMORY_TRIGGER_WORDS = {
+    "summarize", "summarise", "remind",
+}
+
+# Word pairs: if BOTH words appear anywhere in the query (even with typos between them),
+# treat it as a memory/history request and skip caching.
+# This handles: "previous conversation", "previous converssation", "tell me previous convo", etc.
+_MEMORY_WORD_PAIRS = [
+    {"previous", "conversation"},
+    {"previous", "convo"},
+    {"previous", "chat"},
+    {"last", "message"},
+    {"last", "conversation"},
+    {"earlier", "said"},
+    {"what", "talk"},
+    {"our", "conversation"},
+    {"our", "chat"},
+    {"tell", "previous"},
+]
 
 
 def should_cache(query: str, has_document_context: bool) -> bool:
@@ -40,26 +55,30 @@ def should_cache(query: str, has_document_context: bool) -> bool:
       - The AI answer was grounded in an uploaded document  (has_document_context=True)
       - The query is at least 3 words long
       - The query contains no greeting words
-      - The query does not reference conversation history
+      - The query does not reference conversation history (handles typos via word-pair check)
     """
-    # Primary gate: answer must come from a real document
     if not has_document_context:
         return False
 
     q = query.strip().lower().rstrip("!?.,:;")
-    words = q.split()
+    word_set = set(q.split())
 
-    # Too short — almost certainly small talk or a one-word command
-    if len(words) < 3:
+    # Too short to be a real document question
+    if len(word_set) < 3:
         return False
 
-    # Any greeting word anywhere in the query means it is not a document question
-    if any(w in _GREETING_WORDS for w in words):
+    # Any greeting word anywhere → not a document question
+    if word_set & _GREETING_WORDS:
         return False
 
-    # Conversation memory / summary requests — never document-based
-    for pattern in _MEMORY_PATTERNS:
-        if pattern in q:
+    # Single memory trigger words (summarize, remind, etc.)
+    if word_set & _MEMORY_TRIGGER_WORDS:
+        return False
+
+    # Word-pair check: if BOTH words in any pair appear → memory request
+    # This catches typos like "converssation", "convrsation", etc.
+    for pair in _MEMORY_WORD_PAIRS:
+        if pair.issubset(word_set):
             return False
 
     return True
