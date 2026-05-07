@@ -88,11 +88,12 @@ class AIAgentService:
                     "If you just uploaded one, wait a moment for embedding to finish, then try again."
                 )
 
-            # only check the cache for proper questions — not greetings or memory queries
-            if not _is_casual(query) and should_cache(query, has_document_context=True):
+            # only read from cache when the user has explicitly selected a document
+            # — avoids serving stale document answers for general questions
+            if document_id and not _is_casual(query):
                 cached = semantic_cache_get(query, document_id, user_id=user_id)
                 if cached:
-                    print(f"[{chat_id}] cache hit")
+                    print(f"[{chat_id}] cache hit for doc={document_id!r}")
                     if stream:
                         for word in cached.split(" "):
                             yield word + " "
@@ -193,22 +194,26 @@ class AIAgentService:
                     yield chunk
                 
                 if full_answer:
-                    if should_cache(query, has_document_context=has_context) and user_id is not None:
+                    # only cache if the answer actually came from a document
+                    if has_context and should_cache(query, has_document_context=True) and user_id is not None:
                         semantic_cache_set(query, full_answer, document_id, user_id=user_id)
+                        print(f"[{chat_id}] cached doc answer for doc={document_id!r}")
                     elif not has_context and not _is_casual(query):
                         fallback_msg = (
-                            "\n\n> 🌐 *No match found in your documents — answered from web search / general knowledge.*"
+                            "\n\n> No match found in your documents — answered using web search / general knowledge."
                         )
                         yield fallback_msg
                 return
             else:
                 answer = generator
                 if answer:
-                    if should_cache(query, has_document_context=has_context) and user_id is not None:
+                    # only cache if the answer actually came from a document
+                    if has_context and should_cache(query, has_document_context=True) and user_id is not None:
                         semantic_cache_set(query, answer, document_id, user_id=user_id)
+                        print(f"[{chat_id}] cached doc answer for doc={document_id!r}")
                     elif not has_context and not _is_casual(query):
                         answer += (
-                            "\n\n> 🌐 *No match found in your documents — answered from web search / general knowledge.*"
+                            "\n\n> No match found in your documents — answered using web search / general knowledge."
                         )
                 return answer or "I'm sorry, I couldn't generate a response. Please try again."
 

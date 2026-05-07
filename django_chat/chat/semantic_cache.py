@@ -18,72 +18,51 @@ SIMILARITY_THRESHOLD = 0.92
 RAG_KEY_PREFIX = "rag:doc:"
 RAG_TTL = 7200  # 2 hours
 
-# phrases we never want to cache — matching any of these skips both read and write
-_NO_CACHE_PHRASES = {
-    "hi", "hello", "hey", "hii", "helo",
-    "good morning", "good evening", "good afternoon",
-    "how are you", "what's up", "whats up", "sup",
-    "thanks", "thank you", "ok", "okay", "bye", "goodbye",
-    "great", "nice", "cool", "awesome", "got it",
+# Greeting words — if any of these appear in the query, it is not a document question
+_GREETING_WORDS = {
+    "hi", "hello", "hey", "hii", "helo", "sup",
+    "bye", "goodbye", "ok", "okay", "thanks", "thank",
 }
 
-# question patterns that refer to conversation history — never cache these
-_HISTORY_KEYWORDS = (
+# Patterns that reference conversation memory, not document content
+_MEMORY_PATTERNS = (
     "previous conversation", "last message", "what did we talk",
     "summarize our", "summarize the chat", "earlier you said",
     "what was my", "remind me", "our conversation",
 )
 
 
-# Greeting words that make a query non-cacheable even if combined in a longer string.
-# e.g. "hi how are you" contains "hi" so it must NOT be cached.
-_GREETING_WORDS = {
-    "hi", "hello", "hey", "hii", "helo", "sup",
-    "bye", "goodbye", "ok", "okay",
-}
-
-# Very short queries (below this word count) are almost always small talk.
-# "what is f1 score" = 4 words → cached. "hi there" = 2 words → not cached.
-_MIN_WORDS_TO_CACHE = 3
-
-
 def should_cache(query: str, has_document_context: bool) -> bool:
     """
-    Returns True only when it makes sense to cache this answer.
+    Strict document-only cache gate.
 
-    Rules (all must pass):
-      1. The answer must have come from an actual uploaded document.
-      2. The query must not be an exact match for a small-talk phrase.
-      3. None of the individual words can be a greeting word.
-      4. The query must be at least 3 words long.
-      5. The query must not reference conversation history or summaries.
+    Returns True only when ALL of the following are true:
+      - The AI answer was grounded in an uploaded document  (has_document_context=True)
+      - The query is at least 3 words long
+      - The query contains no greeting words
+      - The query does not reference conversation history
     """
+    # Primary gate: answer must come from a real document
     if not has_document_context:
         return False
 
     q = query.strip().lower().rstrip("!?.,:;")
-
-    # exact full-phrase match
-    if q in _NO_CACHE_PHRASES:
-        return False
-
     words = q.split()
 
-    # any greeting word anywhere in the query → skip
+    # Too short — almost certainly small talk or a one-word command
+    if len(words) < 3:
+        return False
+
+    # Any greeting word anywhere in the query means it is not a document question
     if any(w in _GREETING_WORDS for w in words):
         return False
 
-    # too short to be a real knowledge question
-    if len(words) < _MIN_WORDS_TO_CACHE:
-        return False
-
-    # references to conversation history
-    for pattern in _HISTORY_KEYWORDS:
+    # Conversation memory / summary requests — never document-based
+    for pattern in _MEMORY_PATTERNS:
         if pattern in q:
             return False
 
     return True
-
 
 
 def _build_key_prefix(user_id):
