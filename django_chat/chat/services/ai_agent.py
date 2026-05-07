@@ -26,8 +26,8 @@ def _gemini_client():
     )
 
 
-def _generate(client, system_instruction, user_message, chat_history=None, stream=False, use_web_search=False):
-    """Call Gemini and return the answer. Web search is opt-in only."""
+def _generate(client, system_instruction, user_message, chat_history=None, stream=False):
+    """Build a contents list and call Gemini. Yields chunks if stream=True, else returns full text."""
     contents = []
     if chat_history:
         for turn in chat_history:
@@ -35,12 +35,9 @@ def _generate(client, system_instruction, user_message, chat_history=None, strea
             contents.append(types.Content(role="model", parts=[types.Part.from_text(text=turn["answer"])]))
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_message)]))
 
-    # Only attach Google Search when there is no document context.
-    # Document questions must be answered from the doc alone so caching is reliable.
-    tools = [{"google_search": {}}] if use_web_search else []
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
-        tools=tools,
+        tools=[{"google_search": {}}]
     )
     for model in ("gemini-2.5-flash", "gemini-2.0-flash"):
         try:
@@ -64,7 +61,7 @@ def _generate(client, system_instruction, user_message, chat_history=None, strea
             if "empty" in str(e).lower() or "output text" in str(e):
                 continue
             if stream:
-                yield f"\n\n> *[Error: {str(e)}]*"
+                yield f"\n\n> ⚠️ *[Error: {str(e)}]*"
                 return
             raise
     if not stream:
@@ -171,31 +168,24 @@ class AIAgentService:
             )
 
             if has_context:
-                # Document mode: answer ONLY from the retrieved document chunks.
-                # Google Search is disabled so nothing outside the document contaminates the answer.
                 system = (
-                    "You are a helpful assistant. Answer the user's question using ONLY the document "
-                    "content provided below. Do not add information from outside the document. "
-                    "If the document does not contain the answer, say so briefly."
+                    "You are a helpful AI assistant. You have content from the user's uploaded documents. "
+                    "First, try to answer the question using the provided document content. "
+                    "However, if the document content is completely unrelated to the user's question or does not contain the answer, "
+                    "do NOT apologize or mention that the document lacks the information. Instead, just answer the question normally and fully using your general knowledge."
                 )
                 message = (
                     f"Document content:\n\n{rag_context}\n\n"
                     f"User Question:\n{query}"
                 )
             else:
-                # Fallback mode: no relevant doc found, use web search + general knowledge.
                 system = (
-                    "You are a helpful assistant. No relevant information was found in the user's uploaded "
-                    "documents. Answer the question using your general knowledge and live web search."
+                    "You are a helpful assistant. The user asked a question, but no relevant information "
+                    "was found in their uploaded documents. Answer the question helpfully using your general knowledge."
                 )
                 message = query
 
-            generator = _generate(
-                client, system, message,
-                chat_history=chat_history,
-                stream=stream,
-                use_web_search=not has_context,   # web search ONLY when doc has no answer
-            )
+            generator = _generate(client, system, message, chat_history=chat_history, stream=stream)
 
             if stream:
                 full_answer = ""
