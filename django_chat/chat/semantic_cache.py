@@ -24,27 +24,28 @@ _GREETING_WORDS = {
     "bye", "goodbye", "ok", "okay", "thanks", "thank",
 }
 
-# Single words that almost always indicate a memory/history request — not a document question.
-# These are too risky to cache even if combined with other words.
+# Single words that indicate a memory/history request — block caching immediately
 _MEMORY_TRIGGER_WORDS = {
     "summarize", "summarise", "remind",
+    # 'conversation' in a chatbot almost always means chat history, not document content
+    "conversation", "conversations",
 }
 
-# Word pairs: if BOTH words appear anywhere in the query (even with typos between them),
-# treat it as a memory/history request and skip caching.
-# This handles: "previous conversation", "previous converssation", "tell me previous convo", etc.
+# Word pairs: if BOTH words appear in the query, treat it as a memory request.
 _MEMORY_WORD_PAIRS = [
-    {"previous", "conversation"},
     {"previous", "convo"},
     {"previous", "chat"},
     {"last", "message"},
     {"last", "conversation"},
     {"earlier", "said"},
-    {"what", "talk"},
     {"our", "conversation"},
     {"our", "chat"},
     {"tell", "previous"},
 ]
+
+# Prefix fragments that identify "previous" and its common typos.
+# "previous" -> previ, "prvious" -> prvio, "previos" -> previ
+_PREVIOUS_PREFIXES = {"previ", "prvio", "previo"}
 
 
 def should_cache(query: str, has_document_context: bool) -> bool:
@@ -52,10 +53,11 @@ def should_cache(query: str, has_document_context: bool) -> bool:
     Strict document-only cache gate.
 
     Returns True only when ALL of the following are true:
-      - The AI answer was grounded in an uploaded document  (has_document_context=True)
+      - The AI answer was grounded in an uploaded document
       - The query is at least 3 words long
       - The query contains no greeting words
-      - The query does not reference conversation history (handles typos via word-pair check)
+      - The query does not reference conversation history
+        (checked with exact words, word-pairs, AND fuzzy prefix for 'previous' typos)
     """
     if not has_document_context:
         return False
@@ -71,12 +73,15 @@ def should_cache(query: str, has_document_context: bool) -> bool:
     if word_set & _GREETING_WORDS:
         return False
 
-    # Single memory trigger words (summarize, remind, etc.)
+    # Single memory trigger words (summarize, conversation, remind, etc.)
     if word_set & _MEMORY_TRIGGER_WORDS:
         return False
 
-    # Word-pair check: if BOTH words in any pair appear → memory request
-    # This catches typos like "converssation", "convrsation", etc.
+    # Fuzzy prefix check for "previous" and its typos (prvious, previos, previuos ...)
+    if any(w[:5] in _PREVIOUS_PREFIXES for w in word_set if len(w) >= 5):
+        return False
+
+    # Word-pair check for other memory patterns
     for pair in _MEMORY_WORD_PAIRS:
         if pair.issubset(word_set):
             return False

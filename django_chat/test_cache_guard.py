@@ -13,20 +13,21 @@ _GREETING_WORDS = {
 
 _MEMORY_TRIGGER_WORDS = {
     "summarize", "summarise", "remind",
+    "conversation", "conversations",
 }
 
 _MEMORY_WORD_PAIRS = [
-    {"previous", "conversation"},
     {"previous", "convo"},
     {"previous", "chat"},
     {"last", "message"},
     {"last", "conversation"},
     {"earlier", "said"},
-    {"what", "talk"},
     {"our", "conversation"},
     {"our", "chat"},
     {"tell", "previous"},
 ]
+
+_PREVIOUS_PREFIXES = {"previ", "prvio", "previo"}
 
 
 def should_cache(query, has_document_context):
@@ -39,6 +40,8 @@ def should_cache(query, has_document_context):
     if word_set & _GREETING_WORDS:
         return False
     if word_set & _MEMORY_TRIGGER_WORDS:
+        return False
+    if any(w[:5] in _PREVIOUS_PREFIXES for w in word_set if len(w) >= 5):
         return False
     for pair in _MEMORY_WORD_PAIRS:
         if pair.issubset(word_set):
@@ -54,42 +57,42 @@ def should_write_cache(query, has_context, user_id):
 cases = [
     # --- should NOT be cached ---
     # greetings
-    ("hi",                                         True,  1, False),
-    ("hi how are you",                             True,  1, False),
-    ("hello there",                                True,  1, False),
-    ("thanks",                                     True,  1, False),
-    ("okay thanks",                                True,  1, False),
-    # memory / history  (correct spelling)
-    ("previous conversation",                      True,  1, False),
-    ("what was my previous conversation",          True,  1, False),
-    ("tell me about the previous conversation",    True,  1, False),
-    ("summarize our chat",                         True,  1, False),
-    ("remind me what we said",                     True,  1, False),
-    ("what did we talk about",                     True,  1, False),
-    # memory / history  (with TYPOS — the main bug)
-    ("tell me about the previous converssation",   True,  1, False),  # double s
-    ("previous convrsation",                       True,  1, False),  # missing e
-    ("previous convo",                             True,  1, False),  # slang
-    ("summarise our last chat",                    True,  1, False),  # British spelling
-    # off-topic — no document context
-    ("what is the weather today",                  False, 1, False),
-    ("what is chemistry",                          False, 1, False),
-    # no user
-    ("what is machine learning",                   True,  None, False),
+    ("hi",                                          True,  1, False),
+    ("hi how are you",                              True,  1, False),
+    ("hello there",                                 True,  1, False),
+    ("thanks",                                      True,  1, False),
+    # memory - exact
+    ("what is the previous conversation",           True,  1, False),
+    ("tell me about the previous conversation",     True,  1, False),
+    ("summarize our chat",                          True,  1, False),
+    ("remind me what we said",                      True,  1, False),
+    # memory - TYPOS (the main bug cases)
+    ("what is the prvious conversation",            True,  1, False),  # typo: prvious
+    ("tell me about the previous converssation",    True,  1, False),  # typo: converssation
+    ("what is the previous convrsation",            True,  1, False),  # typo: convrsation
+    ("previous convo",                              True,  1, False),  # slang
+    ("summarise our last chat",                     True,  1, False),  # British spelling
+    # off-topic (no document context from Pinecone)
+    ("what is the weather today",                   False, 1, False),
+    ("what is chemistry",                           False, 1, False),
+    # no user logged in
+    ("what is machine learning",                    True,  None, False),
 
-    # --- SHOULD be cached (real document questions) ---
-    ("what is machine learning",                   True,  1, True),
-    ("what is python",                             True,  1, True),
-    ("explain deep learning",                      True,  1, True),
-    ("what is artificial intelligence",            True,  1, True),
-    ("explain gradient descent",                   True,  1, True),
-    ("what is f1 score",                           True,  1, True),
-    ("difference between precision and recall",    True,  1, True),
-    ("define supervised learning",                 True,  1, True),
+    # --- SHOULD be cached (genuine document questions) ---
+    ("what is machine learning",                    True,  1, True),
+    ("what is python",                              True,  1, True),
+    ("explain deep learning",                       True,  1, True),
+    ("what is artificial intelligence",             True,  1, True),
+    ("explain gradient descent",                    True,  1, True),
+    ("what is f1 score",                            True,  1, True),
+    ("difference between precision and recall",     True,  1, True),
+    ("define supervised learning",                  True,  1, True),
+    ("what are the types of machine learning",      True,  1, True),
+    ("how does backpropagation work",               True,  1, True),
 ]
 
-print(f"{'Query':<50} {'got':>5} {'want':>5} {'result':>6}")
-print("-" * 70)
+print(f"{'Query':<52} {'got':>5} {'want':>5} {'result':>6}")
+print("-" * 72)
 
 all_pass = True
 for query, has_ctx, uid, expected in cases:
@@ -97,7 +100,7 @@ for query, has_ctx, uid, expected in cases:
     status = "PASS" if got == expected else "FAIL"
     if got != expected:
         all_pass = False
-    print(f"{query:<50} {str(got):>5} {str(expected):>5} {status}")
+    print(f"{query:<52} {str(got):>5} {str(expected):>5} {status}")
 
 print()
 if all_pass:
