@@ -3,7 +3,7 @@ import traceback
 from google import genai
 from google.genai import types
 from chat.services import embedding_service
-from chat.semantic_cache import semantic_cache_get, semantic_cache_set
+from chat.semantic_cache import semantic_cache_get, semantic_cache_set, should_cache
 from chat.models import Document
 
 
@@ -88,10 +88,15 @@ class AIAgentService:
                     "If you just uploaded one, wait a moment for embedding to finish, then try again."
                 )
 
-            if not _is_casual(query):
+            # only check the cache for proper questions — not greetings or memory queries
+            if not _is_casual(query) and should_cache(query, has_document_context=True):
                 cached = semantic_cache_get(query, document_id, user_id=user_id)
                 if cached:
                     print(f"[{chat_id}] cache hit")
+                    if stream:
+                        for word in cached.split(" "):
+                            yield word + " "
+                        return
                     return cached
 
             # Audio document — try event RAG first, then fall back to the stored transcript
@@ -187,18 +192,23 @@ class AIAgentService:
                     full_answer += chunk
                     yield chunk
                 
-                if full_answer and has_context and user_id is not None:
-                    semantic_cache_set(query, full_answer, document_id, user_id=user_id)
+                if full_answer:
+                    if should_cache(query, has_document_context=has_context) and user_id is not None:
+                        semantic_cache_set(query, full_answer, document_id, user_id=user_id)
+                    elif not has_context and not _is_casual(query):
+                        fallback_msg = (
+                            "\n\n> 🌐 *No match found in your documents — answered from web search / general knowledge.*"
+                        )
+                        yield fallback_msg
                 return
             else:
                 answer = generator
                 if answer:
-                    if has_context and user_id is not None:
+                    if should_cache(query, has_document_context=has_context) and user_id is not None:
                         semantic_cache_set(query, answer, document_id, user_id=user_id)
                     elif not has_context and not _is_casual(query):
                         answer += (
-                            "\n\n> ⚠️ *I couldn't find the exact answer in your uploaded documents, "
-                            "so this answer is based on general knowledge and live web search.*"
+                            "\n\n> 🌐 *No match found in your documents — answered from web search / general knowledge.*"
                         )
                 return answer or "I'm sorry, I couldn't generate a response. Please try again."
 

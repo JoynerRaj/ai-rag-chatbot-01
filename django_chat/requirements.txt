@@ -12,3 +12,5 @@ django-allauth
 pinecone
 python-docx
 PyMuPDF
+djangorestframework
+djangorestframework-simplejwt

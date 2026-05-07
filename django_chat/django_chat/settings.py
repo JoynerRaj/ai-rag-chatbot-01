@@ -31,6 +31,10 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
 
+    # REST framework + JWT
+    'rest_framework',
+    'rest_framework_simplejwt',
+
     "channels",
     "chat",
 ]
@@ -174,4 +178,33 @@ ACCOUNT_EMAIL_VERIFICATION    = 'none'   # set to 'mandatory' in production
 # Use our custom templates
 ACCOUNT_SIGNUP_TEMPLATE   = 'account/signup.html'
 ACCOUNT_LOGIN_TEMPLATE    = 'account/login.html'
-
+
+# ========================
+# REST FRAMEWORK
+# ========================
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        # session auth kept so Django admin and allauth pages still work
+        'rest_framework.authentication.SessionAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+# ========================
+# JWT SETTINGS
+# ========================
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    # access token is short-lived; client must refresh after 7 days
+    'ACCESS_TOKEN_LIFETIME':  timedelta(days=7),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+    'ROTATE_REFRESH_TOKENS':  True,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+}

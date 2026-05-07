@@ -1,9 +1,11 @@
-# we store question/answer pairs in redis so we don't waste Gemini API calls
-# for the same question asked twice. uses cosine similarity on embeddings so
-# even if someone rephrases slightly, we still get a cache hit.
+# Redis-backed cache for document RAG answers only.
+# We intentionally skip caching for:
+#   - greetings / small talk  (hi, thanks, bye ...)
+#   - memory / history questions  (what did we talk about, summarize ...)
+#   - anything that isn't grounded in an uploaded document
 #
-# each key looks like:  chat:emb:{user_id}:{uuid}
-# cache is per-user - you only ever see your own cached answers
+# Cache key format:  rag:doc:{user_id}:{uuid}
+# Each entry expires after 2 hours and is private per user.
 
 import json
 import math
@@ -12,18 +14,52 @@ import os
 
 from .redis_client import redis_client
 
-# if similarity is above 92% we consider it the same question
 SIMILARITY_THRESHOLD = 0.92
+RAG_KEY_PREFIX = "rag:doc:"
+RAG_TTL = 7200  # 2 hours
 
-# user_id in the key keeps each person's cache separate
-EMB_KEY_PREFIX = "chat:emb:"
+# phrases we never want to cache — matching any of these skips both read and write
+_NO_CACHE_PHRASES = {
+    "hi", "hello", "hey", "hii", "helo",
+    "good morning", "good evening", "good afternoon",
+    "how are you", "what's up", "whats up", "sup",
+    "thanks", "thank you", "ok", "okay", "bye", "goodbye",
+    "great", "nice", "cool", "awesome", "got it",
+}
 
-# cache entries live for 1 hour, then auto-expire
-EMB_TTL = 3600
+# question patterns that refer to conversation history — never cache these
+_HISTORY_KEYWORDS = (
+    "previous conversation", "last message", "what did we talk",
+    "summarize our", "summarize the chat", "earlier you said",
+    "what was my", "remind me", "our conversation",
+)
+
+
+def should_cache(query: str, has_document_context: bool) -> bool:
+    """
+    Returns True only when the answer is worth caching.
+    Rules:
+      1. The response must have come from an actual uploaded document.
+      2. The question must not be small talk or a history/summary request.
+    """
+    if not has_document_context:
+        return False
+
+    q = query.strip().lower().rstrip("!?.,:;")
+
+    if q in _NO_CACHE_PHRASES:
+        return False
+
+    for pattern in _HISTORY_KEYWORDS:
+        if pattern in q:
+            return False
+
+    return True
+
 
 
 def _build_key_prefix(user_id):
-    return f"{EMB_KEY_PREFIX}{user_id}:"
+    return f"{RAG_KEY_PREFIX}{user_id}:"
 
 
 def _get_embedding(text: str) -> list:
@@ -126,7 +162,7 @@ def semantic_cache_set(query: str, answer: str, document_id: str, user_id=None) 
         })
         prefix = _build_key_prefix(user_id)
         key = f"{prefix}{uuid.uuid4().hex}"
-        redis_client.set(key, entry, ex=EMB_TTL)
+        redis_client.set(key, entry, ex=RAG_TTL)
         print(f"[SemanticCache] Saved key={key!r} query={query!r} user={user_id}")
     except Exception as e:
         print(f"[SemanticCache] Write error: {e}")
