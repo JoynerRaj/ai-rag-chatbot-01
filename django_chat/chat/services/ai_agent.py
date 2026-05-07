@@ -26,38 +26,52 @@ def _gemini_client():
     )
 
 
-def _generate(client, system_instruction, user_message, chat_history=None):
-    """Build a contents list and call Gemini. Returns the answer text or ''."""
+def _generate(client, system_instruction, user_message, chat_history=None, stream=False):
+    """Build a contents list and call Gemini. Yields chunks if stream=True, else returns full text."""
     contents = []
     if chat_history:
         for turn in chat_history:
-            contents.append(types.Content(role="user", parts=[types.Part(text=turn["question"])]))
-            contents.append(types.Content(role="model", parts=[types.Part(text=turn["answer"])]))
-    contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=turn["question"])]))
+            contents.append(types.Content(role="model", parts=[types.Part.from_text(text=turn["answer"])]))
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_message)]))
 
-    config = types.GenerateContentConfig(system_instruction=system_instruction)
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        tools=[{"google_search": {}}]
+    )
     for model in ("gemini-2.5-flash", "gemini-2.0-flash"):
         try:
-            response = client.models.generate_content(model=model, contents=contents, config=config)
-            candidate = response.candidates[0]
-            if not candidate.content or not candidate.content.parts:
-                continue
-            text = "".join(
-                p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
-            ).strip()
-            if text:
-                return text
+            if stream:
+                response = client.models.generate_content_stream(model=model, contents=contents, config=config)
+                for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+                return
+            else:
+                response = client.models.generate_content(model=model, contents=contents, config=config)
+                candidate = response.candidates[0]
+                if not candidate.content or not candidate.content.parts:
+                    continue
+                text = "".join(
+                    p.text for p in candidate.content.parts if hasattr(p, "text") and p.text
+                ).strip()
+                if text:
+                    return text
         except Exception as e:
             if "empty" in str(e).lower() or "output text" in str(e):
                 continue
+            if stream:
+                yield f"\n\n> ⚠️ *[Error: {str(e)}]*"
+                return
             raise
-    return ""
+    if not stream:
+        return ""
 
 
 class AIAgentService:
 
     @staticmethod
-    def process_query(query, document_id, user, chat_id, chat_history=None):
+    def process_query(query, document_id, user, chat_id, chat_history=None, stream=False):
         try:
             user_id = user.id if (user and user.is_authenticated) else None
             print(f"[{chat_id}] query={query!r}  doc={document_id!r}  user={user_id}")
@@ -165,18 +179,28 @@ class AIAgentService:
                 )
                 message = query
 
-            answer = _generate(client, system, message, chat_history=chat_history)
+            generator = _generate(client, system, message, chat_history=chat_history, stream=stream)
 
-            if answer:
-                if has_context and user_id is not None:
-                    semantic_cache_set(query, answer, document_id, user_id=user_id)
-                elif not has_context and not _is_casual(query):
-                    answer += (
-                        "\n\n> ⚠️ *I couldn't find the exact answer in your uploaded documents, "
-                        "so this answer is based on general knowledge.*"
-                    )
-
-            return answer or "I'm sorry, I couldn't generate a response. Please try again."
+            if stream:
+                full_answer = ""
+                for chunk in generator:
+                    full_answer += chunk
+                    yield chunk
+                
+                if full_answer and has_context and user_id is not None:
+                    semantic_cache_set(query, full_answer, document_id, user_id=user_id)
+                return
+            else:
+                answer = generator
+                if answer:
+                    if has_context and user_id is not None:
+                        semantic_cache_set(query, answer, document_id, user_id=user_id)
+                    elif not has_context and not _is_casual(query):
+                        answer += (
+                            "\n\n> ⚠️ *I couldn't find the exact answer in your uploaded documents, "
+                            "so this answer is based on general knowledge and live web search.*"
+                        )
+                return answer or "I'm sorry, I couldn't generate a response. Please try again."
 
         except Exception as e:
             print(f"[{chat_id}] unhandled error: {e}")

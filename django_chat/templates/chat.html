@@ -351,6 +351,8 @@ function connectWebSocket(id) {
   const protocol = location.protocol === "https:" ? "wss://" : "ws://";
   ws = new WebSocket(protocol + location.host + "/ws/chat/?chat_id=" + id);
 
+let currentStreamBubble = null;
+
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === "history") {
@@ -358,9 +360,28 @@ function connectWebSocket(id) {
       appendMessage(data.response, "bot", false);
       return;
     }
-    removeTyping();
-    appendMessage(data.response, "bot", true);
-    updateSidebarPreview(data.question);
+    
+    if (data.type === "stream") {
+      removeTyping();
+      if (!currentStreamBubble) {
+        currentStreamBubble = appendMessage("", "bot", true);
+      }
+      currentStreamBubble.innerText += data.chunk;
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return;
+    }
+
+    if (data.type === "stream_end") {
+      currentStreamBubble = null;
+      updateSidebarPreview(data.question);
+      return;
+    }
+
+    if (data.type === "response" || data.response) {
+      removeTyping();
+      appendMessage(data.response, "bot", true);
+      updateSidebarPreview(data.question);
+    }
   };
 
   ws.onerror = () => {
@@ -455,6 +476,7 @@ function appendMessage(text, type, animate) {
   row.appendChild(bubble);
   chatBox.appendChild(row);
   chatBox.scrollTop = chatBox.scrollHeight;
+  return bubble;
 }
 
 function showTyping() {
