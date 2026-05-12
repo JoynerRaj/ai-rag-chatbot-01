@@ -14,6 +14,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "audio_events.db
 
 def init_db():
     """Initializes the SQLite database and creates the events table if it doesn't exist."""
+    # Ensure the parent directory exists — required on Render and fresh environments
+    # where the data/ folder may not be present yet.
+    os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -27,6 +30,7 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
 
 def insert_events(events: list[dict]):
     """Inserts a list of event dictionaries into the database."""
