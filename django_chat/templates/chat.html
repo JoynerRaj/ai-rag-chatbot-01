@@ -535,39 +535,37 @@ function updateSidebarPreview(lastMsg) {
 }
 
 /**
- * parseMarkdown — lightweight Markdown → HTML for bot bubbles.
- * Handles: **bold**, *italic*, ### headings, bullet lists (*/•/-), > notes.
- * Escapes HTML first to prevent XSS.
+ * parseMarkdown - Markdown to HTML for bot bubbles.
+ * Handles **bold**, *italic*, ### headings, bullets, > notes.
+ * No lookbehind assertions - broad browser compatibility.
  */
 function parseMarkdown(text) {
   if (!text) return '';
 
-  // 1. Escape HTML special chars
-  let s = text
+  // 1. Escape HTML (XSS prevention)
+  var s = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // 2. Process line by line for block elements
-  s = s.split('\n').map(line => {
-    // ### Heading
-    if (/^###\s+/.test(line))
+  // 2. Line-level block transforms
+  s = s.split('\n').map(function(line) {
+    if (/^###\s/.test(line))
       return '<span class="md-h3">' + line.replace(/^###\s+/, '') + '</span>';
-    // Blockquote / note  (> text)
     if (/^&gt;\s*/.test(line))
-      return '<span class="md-note">' + line.replace(/^&gt;\s*/, '') + '</span>';
-    // Bullet list  (* text  •  text  - text)
-    if (/^(\*|•|-)\s+/.test(line))
-      return '<span class="md-li">' + line.replace(/^(\*|•|-)\s+/, '') + '</span>';
+      return '<span class="md-note">' + line.replace(/^&gt;\s*/, '').trim() + '</span>';
+    if (/^[*\u2022-]\s/.test(line))
+      return '<span class="md-li">' + line.replace(/^[*\u2022-]\s+/, '') + '</span>';
     return line;
   }).join('\n');
 
-  // 3. Inline: **bold**
+  // 3. Bold **text** - process FIRST to consume double asterisks
   s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong class="md-bold">$1</strong>');
-  // 4. Inline: *italic* (single, not double)
-  s = s.replace(/(?<!\*)\*(?!\*)([^*\n]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
 
-  // 5. Newlines → <br>
+  // 4. Italic *text* - safe now that ** is already consumed
+  s = s.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
+
+  // 5. Newlines to <br>
   s = s.replace(/\n/g, '<br>');
 
   return s;
