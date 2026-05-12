@@ -18,4 +18,8 @@ urlpatterns = [
     path("cache/", views.cache_page, name="cache"),
     path("cache/clear/", views.clear_cache, name="clear_cache"),
     path("debug/embed/", views.debug_embed_test, name="debug_embed"),
+    # ── Memory management (MemPalace-inspired) ──────────────────────────
+    path("memories/", views.memory_page, name="memories"),
+    path("memories/delete/<int:memory_id>/", views.delete_memory, name="delete_memory"),
+    path("memories/clear/", views.clear_memories, name="clear_memories"),
 ]

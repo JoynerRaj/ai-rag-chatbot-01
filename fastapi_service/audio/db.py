@@ -1,7 +1,16 @@
+"""
+db.py
+
+SQLite helpers for the audio event store.
+The database lives in the data/ folder so it isn't mixed in with source code.
+"""
+
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "audio_events.db")
+# Resolve the path relative to this file so it works regardless of the working directory.
+# audio/db.py → ../data/audio_events.db → fastapi_service/data/audio_events.db
+DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "audio_events.db")
 
 def init_db():
     """Initializes the SQLite database and creates the events table if it doesn't exist."""

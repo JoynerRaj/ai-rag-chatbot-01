@@ -1,7 +1,43 @@
+# Python bytecode and caches
 __pycache__/
-*.pyc
-.env
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
 venv/
-data/
+.venv/
+env/
+ENV/
+
+# Environment variables — never commit real secrets
+.env
+!.env.example
+
+# Django
 db.sqlite3
 *.sqlite3
+staticfiles/
+media/
+
+# FastAPI / SQLite data files
+fastapi_service/data/*.db
+
+# Common editor and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

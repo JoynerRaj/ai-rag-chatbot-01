@@ -114,6 +114,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     session.title = query[:30] + ("..." if len(query) > 30 else "")
                     await sync_to_async(session.save)()
 
+                # ── MemPalace-inspired: extract & store memories async ──────
+                # Extract key facts from the exchange in a background thread so
+                # they are available to future queries via semantic memory search.
+                if self.user and getattr(self.user, "is_authenticated", False):
+                    def _trigger_memory():
+                        try:
+                            from chat.services.memory_service import store_exchange_async
+                            store_exchange_async(
+                                user_id=self.user.id,
+                                session_id=self.chat_id,
+                                question=query,
+                                answer=full_answer,
+                            )
+                        except Exception as mem_err:
+                            print(f"[memory] trigger error (non-critical): {mem_err}")
+                    await sync_to_async(_trigger_memory, thread_sensitive=False)()
+                # ───────────────────────────────────────────────────────────
+
         except Exception as e:
             print(f"[WebSocket] Unhandled error: {e}")
             await self.send(json.dumps({
