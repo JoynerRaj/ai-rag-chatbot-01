@@ -242,6 +242,13 @@
   .send-btn svg { width: 18px; height: 18px; }
 
   .input-hint { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px; }
+
+  /* ── MARKDOWN RENDERING in bot bubbles ── */
+  .md-bold  { color: #f1f5f9; font-weight: 600; }
+  .md-note  { color: var(--text-muted); font-size: 12px; display: block; margin-top: 6px; font-style: italic; }
+  .md-h3    { color: var(--text); font-size: 14px; font-weight: 700; display: block; margin: 8px 0 4px; }
+  .md-li    { display: block; padding-left: 14px; position: relative; }
+  .md-li::before { content: '•'; position: absolute; left: 0; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -356,6 +363,7 @@ function connectWebSocket(id) {
   ws = new WebSocket(protocol + location.host + "/ws/chat/?chat_id=" + id);
 
 let currentStreamBubble = null;
+let streamRawText = "";  // accumulates raw text for markdown render at stream_end
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -368,15 +376,22 @@ let currentStreamBubble = null;
     if (data.type === "stream") {
       removeTyping();
       if (!currentStreamBubble) {
+        streamRawText = "";
         currentStreamBubble = appendMessage("", "bot", true);
       }
-      currentStreamBubble.innerText += data.chunk;
+      streamRawText += data.chunk;
+      currentStreamBubble.innerText = streamRawText;  // plain text while streaming
       chatBox.scrollTop = chatBox.scrollHeight;
       return;
     }
 
     if (data.type === "stream_end") {
+      // Apply markdown once streaming is complete
+      if (currentStreamBubble && streamRawText) {
+        currentStreamBubble.innerHTML = parseMarkdown(streamRawText);
+      }
       currentStreamBubble = null;
+      streamRawText = "";
       updateSidebarPreview(data.question);
       return;
     }
@@ -474,7 +489,11 @@ function appendMessage(text, type, animate) {
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.innerText = text;
+  if (type === "bot") {
+    bubble.innerHTML = parseMarkdown(text);  // render markdown for bot
+  } else {
+    bubble.innerText = text;                 // plain text for user
+  }
 
   row.appendChild(avatar);
   row.appendChild(bubble);
@@ -513,6 +532,45 @@ function updateSidebarPreview(lastMsg) {
   const time   = document.querySelector(".chat-item.active .chat-time");
   if (active) active.innerText = lastMsg.substring(0, 40);
   if (time)   time.innerText   = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+/**
+ * parseMarkdown — lightweight Markdown → HTML for bot bubbles.
+ * Handles: **bold**, *italic*, ### headings, bullet lists (*/•/-), > notes.
+ * Escapes HTML first to prevent XSS.
+ */
+function parseMarkdown(text) {
+  if (!text) return '';
+
+  // 1. Escape HTML special chars
+  let s = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // 2. Process line by line for block elements
+  s = s.split('\n').map(line => {
+    // ### Heading
+    if (/^###\s+/.test(line))
+      return '<span class="md-h3">' + line.replace(/^###\s+/, '') + '</span>';
+    // Blockquote / note  (> text)
+    if (/^&gt;\s*/.test(line))
+      return '<span class="md-note">' + line.replace(/^&gt;\s*/, '') + '</span>';
+    // Bullet list  (* text  •  text  - text)
+    if (/^(\*|•|-)\s+/.test(line))
+      return '<span class="md-li">' + line.replace(/^(\*|•|-)\s+/, '') + '</span>';
+    return line;
+  }).join('\n');
+
+  // 3. Inline: **bold**
+  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong class="md-bold">$1</strong>');
+  // 4. Inline: *italic* (single, not double)
+  s = s.replace(/(?<!\*)\*(?!\*)([^*\n]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+  // 5. Newlines → <br>
+  s = s.replace(/\n/g, '<br>');
+
+  return s;
 }
 </script>
 </body>

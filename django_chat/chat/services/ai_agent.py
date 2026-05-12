@@ -243,8 +243,6 @@ class AIAgentService:
                     if has_context and should_cache(query, has_document_context=True) and user_id is not None:
                         semantic_cache_set(query, full_answer, document_id, user_id=user_id)
                         print(f"[{chat_id}] cached doc answer")
-                    elif not has_context and not _is_casual(query):
-                        yield "\n\n> No match found in your documents — answered using web search / general knowledge."
                 return
 
             else:
@@ -253,8 +251,6 @@ class AIAgentService:
                     if has_context and should_cache(query, has_document_context=True) and user_id is not None:
                         semantic_cache_set(query, answer, document_id, user_id=user_id)
                         print(f"[{chat_id}] cached doc answer")
-                    elif not has_context and not _is_casual(query):
-                        answer += "\n\n> No match found in your documents — answered using web search / general knowledge."
                 return answer or "I'm sorry, I couldn't generate a response. Please try again."
 
         except Exception as e:

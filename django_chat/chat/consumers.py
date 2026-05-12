@@ -118,19 +118,56 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 # Extract key facts from the exchange in a background thread so
                 # they are available to future queries via semantic memory search.
                 if self.user and getattr(self.user, "is_authenticated", False):
-                    def _trigger_memory():
+                    # Snapshot values so the closure is safe even if self changes
+                    _uid  = self.user.id
+                    _sid  = self.chat_id
+                    _q    = query
+                    _ans  = full_answer
+
+                    def _store_memory_inline():
+                        """
+                        Run Gemini extraction + Pinecone upsert directly in the
+                        sync thread pool (via sync_to_async below) so we are
+                        never killed as a daemon thread.  stream_end was already
+                        sent to the browser, so this never blocks the UX.
+                        """
                         try:
-                            from chat.services.memory_service import store_exchange_async
-                            store_exchange_async(
-                                user_id=self.user.id,
-                                session_id=self.chat_id,
-                                question=query,
-                                answer=full_answer,
+                            from chat.services.memory_service import (
+                                _is_worth_remembering,
+                                extract_memories,
+                                _store_single_memory,
                             )
-                        except Exception as mem_err:
-                            print(f"[memory] trigger error (non-critical): {mem_err}")
-                    await sync_to_async(_trigger_memory, thread_sensitive=False)()
-                # ───────────────────────────────────────────────────────────
+                            from chat.models import MemoryEntry
+
+                            if not _is_worth_remembering(_q, _ans):
+                                print(f"[memory] skipped trivial exchange user={_uid}")
+                                return
+
+                            facts = extract_memories(_q, _ans)
+                            print(f"[memory] extracted {len(facts)} fact(s) for user={_uid}")
+
+                            for fact in facts:
+                                vid = _store_single_memory(
+                                    user_id=_uid,
+                                    session_id=_sid,
+                                    fact=fact,
+                                    question=_q,
+                                )
+                                if vid:
+                                    MemoryEntry.objects.create(
+                                        user_id=_uid,
+                                        session_id=_sid,
+                                        content=fact,
+                                        source_question=_q[:500],
+                                        pinecone_id=vid,
+                                    )
+                                    print(f"[memory] saved: {fact[:60]!r}")
+                        except Exception as _e:
+                            import traceback
+                            print(f"[memory] storage error (non-critical): {_e}")
+                            traceback.print_exc()
+
+                    await sync_to_async(_store_memory_inline, thread_sensitive=False)()
 
         except Exception as e:
             print(f"[WebSocket] Unhandled error: {e}")
