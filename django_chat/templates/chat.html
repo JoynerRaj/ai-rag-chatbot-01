@@ -390,6 +390,7 @@ let currentStreamText = "";
     }
 
     if (data.type === "stream_end") {
+      removeTyping();
       currentStreamBubble = null;
       currentStreamText = "";
       updateSidebarPreview(data.question);

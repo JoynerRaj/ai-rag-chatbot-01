@@ -156,6 +156,7 @@
       <div class="stats-row">
         <span class="stat-chip chip-count">🗂 {{ total }} memor{{ total|pluralize:"y,ies" }} stored</span>
         <span class="stat-chip chip-purple">⚡ Semantic retrieval active</span>
+        <span class="stat-chip chip-purple">🧠 Vector DB: {{ vector_db }}</span>
       </div>
     </div>
 
@@ -174,8 +175,8 @@
     <div class="info-text">
       <strong>How memory works:</strong>
       After each substantive conversation turn, the AI extracts key facts using Gemini and stores them here.
-      When you ask a new question, the <strong>{{ total }}</strong> most semantically relevant memories are
-      retrieved from Pinecone and injected into the AI's context — so it remembers what you've discussed,
+      When you ask a new question, the <strong>top {{ retrieval_k }}</strong> most semantically relevant memories are
+      retrieved from {{ vector_db }} and injected into the AI's context — so it remembers what you've discussed,
       your preferences, and past conclusions. Inspired by
       <strong><a href="https://github.com/MemPalace/mempalace" target="_blank" style="color:#a5b4fc;text-decoration:none">MemPalace</a></strong>.
     </div>

@@ -1,5 +1,7 @@
-# Audio event pipeline.
-# db.py                — SQLite helpers (init, insert, query)
-# event_detector.py    — detects sound events in an audio file
-# query_parser.py      — converts natural language to SQL via Gemini
-# response_generator.py — formats SQL results as plain English
+# This file marks the audio directory as a Python package.
+# Each module here handles a specific part of audio event processing:
+#
+#   db.py               — SQLite storage for audio events and sessions
+#   event_detector.py   — detects audio events from Gemini responses
+#   query_parser.py     — parses natural language audio queries
+#   response_generator.py — formats audio query results into responses

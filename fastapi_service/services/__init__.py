@@ -1,4 +1,6 @@
-# Business logic layer.
-# document.py    — text extraction from PDF, DOCX, TXT
-# embedding.py   — HuggingFace sentence-transformer wrapper
-# vector_store.py — Pinecone index connection and CRUD helpers
+# This file marks the services directory as a Python package.
+# Each module here handles one specific concern:
+#
+#   document.py    — text extraction from uploaded PDF, TXT, and DOCX files
+#   embedding.py   — Gemini text embedding generation
+#   vector_store.py — Pinecone vector storage and similarity search

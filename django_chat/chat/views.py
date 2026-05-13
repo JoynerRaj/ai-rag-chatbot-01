@@ -494,6 +494,8 @@ def memory_page(request):
     return render(request, "memories.html", {
         "memory_entries": entries,
         "total": len(entries),
+        "vector_db": "Pinecone",
+        "retrieval_k": 5,
     })
 
 
