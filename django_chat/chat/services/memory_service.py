@@ -167,40 +167,45 @@ def store_exchange_async(user_id: int, session_id: int, question: str, answer: s
         return
 
     def _run():
-        # MUST close stale connections at thread start — Django connections are
-        # thread-local, so the new thread inherits a closed/stale handle from
-        # the parent. close_old_connections() forces Django to open a fresh one.
-        from django.db import close_old_connections
-        close_old_connections()
+        import django.db
+        django.db.connections.close_all()
+
         try:
+            print(f"[memory] thread started for user={user_id} q={question[:40]!r}")
             from chat.models import MemoryEntry
+
             facts = extract_memories(question, answer)
+            print(f"[memory] extracted {len(facts)} facts: {facts}")
+
             saved = 0
             for fact in facts:
                 vid = _store_single_memory(user_id, session_id, fact, question)
                 if vid:
-                    MemoryEntry.objects.create(
-                        user_id=user_id,
-                        session_id=session_id,
-                        content=fact,
-                        source_question=question[:500],
-                        pinecone_id=vid,
-                    )
-                    saved += 1
-            print(f"[memory] saved {saved}/{len(facts)} memories for user={user_id}")
+                    try:
+                        MemoryEntry.objects.create(
+                            user_id=user_id,
+                            session_id=session_id,
+                            content=fact,
+                            source_question=question[:500],
+                            pinecone_id=vid,
+                        )
+                        saved += 1
+                        print(f"[memory] DB row created id={vid[:8]} fact={fact[:50]!r}")
+                    except Exception as db_err:
+                        print(f"[memory] MemoryEntry.create FAILED: {db_err}")
+                        traceback.print_exc()
+
+            print(f"[memory] done — saved {saved}/{len(facts)} for user={user_id}")
+
         except Exception as e:
-            print(f"[memory] background thread error: {e}")
+            print(f"[memory] thread error: {e}")
             traceback.print_exc()
         finally:
-            close_old_connections()
+            django.db.connections.close_all()
 
     threading.Thread(target=_run, daemon=True).start()
 
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Public API — read path
-# ──────────────────────────────────────────────────────────────────────────────
 
 def search_memories(user_id: int, query: str, n: int = MEMORY_TOP_K) -> list:
     """
