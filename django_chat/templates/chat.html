@@ -191,6 +191,12 @@
     color: var(--text-dim);
   }
 
+  /* Inline label styling inside bot answers (no markdown) */
+  .bot .bubble .ai-label {
+    color: var(--text);
+    font-weight: 500;
+  }
+
   /* Typing indicator */
   .typing-bubble {
     display: flex; align-items: center; gap: 5px;
@@ -241,14 +247,12 @@
   .send-btn:hover { opacity: 0.85; transform: scale(1.05); }
   .send-btn svg { width: 18px; height: 18px; }
 
-  .input-hint { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px; }
+  /* Bot bubble markdown */
+  .bot .bubble strong { color: var(--text); font-weight: 650; }
+  .bot .bubble em { font-style: italic; color: var(--text-dim); }
+  .bot .bubble code { background: rgba(99,102,241,0.12); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 13px; }
 
-  /* ── MARKDOWN RENDERING in bot bubbles ── */
-  .md-bold  { color: #f1f5f9; font-weight: 600; }
-  .md-note  { color: var(--text-muted); font-size: 12px; display: block; margin-top: 6px; font-style: italic; }
-  .md-h3    { color: var(--text); font-size: 14px; font-weight: 700; display: block; margin: 8px 0 4px; }
-  .md-li    { display: block; padding-left: 14px; position: relative; }
-  .md-li::before { content: '•'; position: absolute; left: 0; color: var(--accent); }
+  .input-hint { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -363,7 +367,7 @@ function connectWebSocket(id) {
   ws = new WebSocket(protocol + location.host + "/ws/chat/?chat_id=" + id);
 
 let currentStreamBubble = null;
-let streamRawText = "";  // accumulates raw text for markdown render at stream_end
+let currentStreamText = "";
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -376,22 +380,18 @@ let streamRawText = "";  // accumulates raw text for markdown render at stream_e
     if (data.type === "stream") {
       removeTyping();
       if (!currentStreamBubble) {
-        streamRawText = "";
+        currentStreamText = "";
         currentStreamBubble = appendMessage("", "bot", true);
       }
-      streamRawText += data.chunk;
-      currentStreamBubble.innerText = streamRawText;  // plain text while streaming
+      currentStreamText += (data.chunk || "");
+      currentStreamBubble.innerHTML = formatBotText(currentStreamText);
       chatBox.scrollTop = chatBox.scrollHeight;
       return;
     }
 
     if (data.type === "stream_end") {
-      // Apply markdown once streaming is complete
-      if (currentStreamBubble && streamRawText) {
-        currentStreamBubble.innerHTML = parseMarkdown(streamRawText);
-      }
       currentStreamBubble = null;
-      streamRawText = "";
+      currentStreamText = "";
       updateSidebarPreview(data.question);
       return;
     }
@@ -490,9 +490,9 @@ function appendMessage(text, type, animate) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (type === "bot") {
-    bubble.innerHTML = parseMarkdown(text);  // render markdown for bot
+    bubble.innerHTML = formatBotText(text || "");
   } else {
-    bubble.innerText = text;                 // plain text for user
+    bubble.innerText = text || "";
   }
 
   row.appendChild(avatar);
@@ -500,6 +500,34 @@ function appendMessage(text, type, animate) {
   chatBox.appendChild(row);
   chatBox.scrollTop = chatBox.scrollHeight;
   return bubble;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatBotText(raw) {
+  if (!raw) return "";
+
+  // 1. Escape HTML so user/AI content can't inject tags
+  let text = escapeHtml(raw);
+
+  // 2. **bold** → <strong> (renders as darker, heavier font — no asterisks shown)
+  text = text.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+
+  // 3. *italic* → <em>
+  text = text.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+  // 4. `code` → <code>
+  text = text.replace(/`([^`]+?)`/g, '<code>$1</code>');
+
+  // 5. Newlines → <br>
+  return text.replace(/\r?\n/g, '<br>');
 }
 
 function showTyping() {
@@ -532,43 +560,6 @@ function updateSidebarPreview(lastMsg) {
   const time   = document.querySelector(".chat-item.active .chat-time");
   if (active) active.innerText = lastMsg.substring(0, 40);
   if (time)   time.innerText   = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-}
-
-/**
- * parseMarkdown - Markdown to HTML for bot bubbles.
- * Handles **bold**, *italic*, ### headings, bullets, > notes.
- * No lookbehind assertions - broad browser compatibility.
- */
-function parseMarkdown(text) {
-  if (!text) return '';
-
-  // 1. Escape HTML (XSS prevention)
-  var s = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // 2. Line-level block transforms
-  s = s.split('\n').map(function(line) {
-    if (/^###\s/.test(line))
-      return '<span class="md-h3">' + line.replace(/^###\s+/, '') + '</span>';
-    if (/^&gt;\s*/.test(line))
-      return '<span class="md-note">' + line.replace(/^&gt;\s*/, '').trim() + '</span>';
-    if (/^[*\u2022-]\s/.test(line))
-      return '<span class="md-li">' + line.replace(/^[*\u2022-]\s+/, '') + '</span>';
-    return line;
-  }).join('\n');
-
-  // 3. Bold **text** - process FIRST to consume double asterisks
-  s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong class="md-bold">$1</strong>');
-
-  // 4. Italic *text* - safe now that ** is already consumed
-  s = s.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
-
-  // 5. Newlines to <br>
-  s = s.replace(/\n/g, '<br>');
-
-  return s;
 }
 </script>
 </body>

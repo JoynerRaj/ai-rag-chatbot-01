@@ -113,6 +113,16 @@ class AIAgentService:
     @staticmethod
     def process_query(query, document_id, user, chat_id, chat_history=None, stream=False):
         try:
+            # Deterministic answers for common "what are we using?" questions.
+            # Keeps the UX consistent even when the model hallucinates stack details.
+            ql = (query or "").strip().lower()
+            if ("memory" in ql or "memory management" in ql) and ("database" in ql or "db" in ql or "vector" in ql):
+                return (
+                    "Memory management uses Pinecone as the vector database for semantic retrieval.\n"
+                    "A mirrored copy of each stored memory is also saved in the Django database (MemoryEntry) "
+                    "so you can view/delete memories in the Memory Manager."
+                )
+
             user_id  = user.id if (user and user.is_authenticated) else None
             print(f"[{chat_id}] query={query!r}  doc={document_id!r}  user={user_id}")
 
@@ -125,7 +135,7 @@ class AIAgentService:
             if not has_docs:
                 return (
                     "No embedded documents found.\n\n"
-                    "Please go to **Documents → Upload** and add a document first. "
+                    "Please go to Documents → Upload and add a document first. "
                     "If you just uploaded one, wait a moment for embedding to finish, then try again."
                 )
 
@@ -189,8 +199,7 @@ class AIAgentService:
                         semantic_cache_set(query, answer, document_id, user_id=user_id)
                     if no_transcript:
                         answer += (
-                            "\n\n> ⚠️ *This answer is from general knowledge — "
-                            "the audio transcript was not available.*"
+                            "\n\nNote: This answer is from general knowledge — the audio transcript was not available."
                         )
                     return answer
 
@@ -222,8 +231,8 @@ class AIAgentService:
                 message = f"Document content:\n\n{rag_context}\n\nUser question:\n{query}"
             else:
                 system  = (
-                    "You are a helpful assistant. No relevant content was found in the user's uploaded "
-                    "documents. Answer the question using your general knowledge."
+                    "You are a helpful AI assistant. Answer the question clearly and helpfully. "
+                    "Do not add any disclaimers, footnotes, or notes about documents or databases."
                 )
                 message = query
 

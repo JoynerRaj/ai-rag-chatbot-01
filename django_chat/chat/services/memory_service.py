@@ -34,7 +34,7 @@ from chat.services.embedding_service import _embed_text, _get_pinecone_index
 
 MEMORY_TYPE_TAG  = "mem"       # Pinecone metadata tag separating memories from docs
 MEMORY_TOP_K     = 5           # max memories to retrieve per query
-MEMORY_THRESHOLD = 0.60        # min cosine similarity to include a memory
+MEMORY_THRESHOLD = 0.55        # slightly relaxed to catch more relevant context
 
 # Short trivial exchanges we never bother to remember
 _TRIVIAL_PHRASES = {
@@ -49,17 +49,17 @@ _TRIVIAL_PHRASES = {
 
 def _is_worth_remembering(question: str, answer: str) -> bool:
     """
-    Cheap pre-filter: skip greetings and one-word exchanges.
-    We only invoke Gemini for extraction when the answer contains real content.
+    Cheap pre-filter: skip greetings and very short exchanges.
     """
-    q = question.strip().lower().rstrip("!?.,;:")
+    q = question.strip().lower().rstrip("!?.,:;")
     if q in _TRIVIAL_PHRASES:
         return False
-    if len(question.split()) < 3:
+    if len(question.split()) < 2:  # allow 2+ words
         return False
-    if len(answer.strip()) < 30:
+    if len(answer.strip()) < 15:   # allow 15+ chars
         return False
     return True
+
 
 
 def _gemini_client():
@@ -160,17 +160,22 @@ def store_exchange_async(user_id: int, session_id: int, question: str, answer: s
       3. Embeds each fact and upserts it to Pinecone.
       4. Creates a MemoryEntry row in Django DB for the management UI.
 
-    Failures are printed but never raised — the chat response already sent.
+    Failures are printed but never raised — the chat response is already sent.
     """
     if not _is_worth_remembering(question, answer):
         print(f"[memory] skipping trivial exchange for user={user_id}")
         return
 
     def _run():
+        # MUST close stale connections at thread start — Django connections are
+        # thread-local, so the new thread inherits a closed/stale handle from
+        # the parent. close_old_connections() forces Django to open a fresh one.
+        from django.db import close_old_connections
+        close_old_connections()
         try:
-            from chat.models import MemoryEntry  # lazy import to avoid circular deps
+            from chat.models import MemoryEntry
             facts = extract_memories(question, answer)
-
+            saved = 0
             for fact in facts:
                 vid = _store_single_memory(user_id, session_id, fact, question)
                 if vid:
@@ -181,12 +186,16 @@ def store_exchange_async(user_id: int, session_id: int, question: str, answer: s
                         source_question=question[:500],
                         pinecone_id=vid,
                     )
-
+                    saved += 1
+            print(f"[memory] saved {saved}/{len(facts)} memories for user={user_id}")
         except Exception as e:
             print(f"[memory] background thread error: {e}")
             traceback.print_exc()
+        finally:
+            close_old_connections()
 
     threading.Thread(target=_run, daemon=True).start()
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
