@@ -79,6 +79,9 @@
       <div class="doc-icon">
         {% if ".pdf" in doc.title|lower %}📕
         {% elif ".docx" in doc.title|lower %}📘
+        {% elif ".csv" in doc.title|lower %}📊
+        {% elif ".jpg" in doc.title|lower or ".jpeg" in doc.title|lower or ".png" in doc.title|lower or ".webp" in doc.title|lower %}🖼️
+        {% elif ".mp3" in doc.title|lower or ".wav" in doc.title|lower or ".ogg" in doc.title|lower or ".m4a" in doc.title|lower %}🎵
         {% else %}📄{% endif %}
       </div>
       <div class="doc-name">{{ doc.title }}</div>

@@ -1,8 +1,10 @@
-# Redis-backed cache for document RAG answers only.
-# We intentionally skip caching for:
-#   - greetings / small talk  (hi, thanks, bye ...)
-#   - memory / history questions  (what did we talk about, summarize ...)
-#   - anything that isn't grounded in an uploaded document
+# Redis-backed semantic cache for document RAG answers.
+#
+# Fixes applied:
+#   1. Query normalization  — lowercase + strip punctuation before embedding
+#   2. Lower threshold      — 0.88 (was 0.92) so semantically similar phrasing hits cache
+#   3. Duplicate prevention — skip storing if a similar entry already exists
+#   4. Clean entry format   — answer and sources are separate flat fields (no nested dicts)
 #
 # Cache key format:  rag:doc:{user_id}:{uuid}
 # Each entry expires after 2 hours and is private per user.
@@ -10,32 +12,28 @@
 import json
 import math
 import uuid
-import os
+import re
 
 from .redis_client import redis_client
 
-SIMILARITY_THRESHOLD = 0.92
-RAG_KEY_PREFIX = "rag:doc:"
-RAG_TTL = 7200  # 2 hours
+# ── Tunable constants ────────────────────────────────────────────────────────
+SIMILARITY_THRESHOLD = 0.88   # lowered from 0.92 — catches paraphrases
+RAG_KEY_PREFIX       = "rag:doc:"
+RAG_TTL              = 7200   # 2 hours
 
-# Words that mark a query as non-document — greeting words OR personal preference words
+# ── Guard words — same as before ────────────────────────────────────────────
 _GREETING_WORDS = {
     "hi", "hello", "hey", "hii", "helo", "sup",
     "bye", "goodbye", "ok", "okay", "thanks", "thank",
-    # personal preference / lifestyle — never in a document question
     "fav", "favorite", "favourite",
-    "color", "colour",
-    "food", "hobby", "hobbies",
+    "color", "colour", "food", "hobby", "hobbies",
 }
 
-# Single words that indicate a memory/history request — block caching immediately
 _MEMORY_TRIGGER_WORDS = {
     "summarize", "summarise", "remind",
-    # 'conversation' in a chatbot almost always means chat history, not document content
     "conversation", "conversations",
 }
 
-# Word pairs: if BOTH words appear in the query, treat it as a memory request.
 _MEMORY_WORD_PAIRS = [
     {"previous", "convo"},
     {"previous", "chat"},
@@ -47,45 +45,58 @@ _MEMORY_WORD_PAIRS = [
     {"tell", "previous"},
 ]
 
-# Prefix fragments that identify "previous" and its common typos.
-# "previous" -> previ, "prvious" -> prvio, "previos" -> previ
 _PREVIOUS_PREFIXES = {"previ", "prvio", "previo"}
 
 
+# ── Query normalization ──────────────────────────────────────────────────────
+
+def _normalize_query(query: str) -> str:
+    """
+    Normalize a query so that trivially different phrasings produce the
+    same (or very close) embedding vector.
+
+    Steps:
+      1. Lowercase
+      2. Strip leading/trailing whitespace
+      3. Remove punctuation (keeps letters, digits, spaces)
+      4. Collapse multiple spaces into one
+
+    Examples:
+      "What is AI?"              -> "what is ai"
+      "Artificial Intelligence!" -> "artificial intelligence"
+      "explain about  AI  "      -> "explain about ai"
+    """
+    q = query.lower().strip()
+    q = re.sub(r"[^\w\s]", "", q)   # remove punctuation
+    q = re.sub(r"\s+", " ", q)       # collapse spaces
+    return q.strip()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
 def should_cache(query: str, has_document_context: bool) -> bool:
     """
-    Strict document-only cache gate.
-
-    Returns True only when ALL of the following are true:
-      - The AI answer was grounded in an uploaded document
-      - The query is at least 3 words long
-      - The query contains no greeting words
-      - The query does not reference conversation history
-        (checked with exact words, word-pairs, AND fuzzy prefix for 'previous' typos)
+    Gate: only cache document-grounded answers to substantive questions.
+    Returns True only when ALL conditions are satisfied.
     """
     if not has_document_context:
         return False
 
-    q = query.strip().lower().rstrip("!?.,:;")
+    q = _normalize_query(query)
     word_set = set(q.split())
 
-    # Too short to be a real document question
     if len(word_set) < 3:
         return False
 
-    # Any greeting word anywhere → not a document question
     if word_set & _GREETING_WORDS:
         return False
 
-    # Single memory trigger words (summarize, conversation, remind, etc.)
     if word_set & _MEMORY_TRIGGER_WORDS:
         return False
 
-    # Fuzzy prefix check for "previous" and its typos (prvious, previos, previuos ...)
     if any(w[:5] in _PREVIOUS_PREFIXES for w in word_set if len(w) >= 5):
         return False
 
-    # Word-pair check for other memory patterns
     for pair in _MEMORY_WORD_PAIRS:
         if pair.issubset(word_set):
             return False
@@ -93,12 +104,12 @@ def should_cache(query: str, has_document_context: bool) -> bool:
     return True
 
 
-def _build_key_prefix(user_id):
+def _build_key_prefix(user_id) -> str:
     return f"{RAG_KEY_PREFIX}{user_id}:"
 
 
-def _get_embedding(text: str) -> list:
-    """Get an embedding vector for the text using Google's embedding model."""
+def _get_embedding(text: str):
+    """Embed text using the project's Gemini embedding model."""
     try:
         from chat.services.embedding_service import _embed_text
         return _embed_text(text)
@@ -108,7 +119,7 @@ def _get_embedding(text: str) -> list:
 
 
 def _cosine_similarity(a: list, b: list) -> float:
-    """Standard cosine similarity - no numpy needed."""
+    """Pure-Python cosine similarity — no numpy dependency."""
     dot   = sum(x * y for x, y in zip(a, b))
     mag_a = math.sqrt(sum(x * x for x in a))
     mag_b = math.sqrt(sum(x * x for x in b))
@@ -117,26 +128,32 @@ def _cosine_similarity(a: list, b: list) -> float:
     return dot / (mag_a * mag_b)
 
 
+# ── Core cache operations ────────────────────────────────────────────────────
+
 def semantic_cache_get(query: str, document_id: str, user_id=None):
     """
-    Check if we already have a good answer for this question.
-    Returns the cached answer if similarity is high enough, otherwise None.
+    Look up a cached answer for this query.
+
+    The query is normalized before embedding so "What is AI?" and
+    "what is ai" produce the same lookup vector.
+
+    Returns a dict {"answer": str, "sources": list, "score": float}
+    if a similar cached entry exists, otherwise None.
     """
-    if redis_client is None:
+    if redis_client is None or user_id is None:
         return None
 
-    if user_id is None:
-        return None
-
-    query_emb = _get_embedding(query)
+    # Normalize BEFORE embedding — key fix for case/punctuation mismatches
+    normalized = _normalize_query(query)
+    query_emb  = _get_embedding(normalized)
     if query_emb is None:
         return None
 
     try:
-        prefix = _build_key_prefix(user_id)
-        keys = redis_client.keys(f"{prefix}*")
-        best_score  = -1.0
-        best_answer = None
+        prefix     = _build_key_prefix(user_id)
+        keys       = redis_client.keys(f"{prefix}*")
+        best_score = -1.0
+        best_entry = None
 
         for key in keys:
             raw = redis_client.get(key)
@@ -147,7 +164,7 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
             except Exception:
                 continue
 
-            # different document means different content, skip it
+            # Each cache entry is per-document; skip mismatches
             if entry.get("document_id") != document_id:
                 continue
 
@@ -157,14 +174,23 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
 
             score = _cosine_similarity(query_emb, stored_emb)
             if score > best_score:
-                best_score  = score
-                best_answer = entry.get("answer")
+                best_score = score
+                best_entry = entry
 
-        if best_score >= SIMILARITY_THRESHOLD and best_answer:
-            print(f"[SemanticCache] HIT (score={best_score:.3f}) user={user_id}")
-            return best_answer
+        if best_score >= SIMILARITY_THRESHOLD and best_entry:
+            # Safely extract answer — handle legacy nested-dict format
+            answer = best_entry.get("answer", "")
+            if isinstance(answer, dict):
+                answer = answer.get("answer", "")
 
-        print(f"[SemanticCache] MISS (best={best_score:.3f}) user={user_id}")
+            sources = best_entry.get("sources", [])
+            print(
+                f"[SemanticCache] HIT  score={best_score:.3f}  "
+                f"user={user_id}  query={normalized!r}"
+            )
+            return {"answer": answer, "sources": sources, "score": best_score}
+
+        print(f"[SemanticCache] MISS  best={best_score:.3f}  user={user_id}  query={normalized!r}")
         return None
 
     except Exception as e:
@@ -172,65 +198,132 @@ def semantic_cache_get(query: str, document_id: str, user_id=None):
         return None
 
 
-def semantic_cache_set(query: str, answer: str, document_id: str, user_id=None) -> None:
+def semantic_cache_set(
+    query: str,
+    answer,
+    document_id: str,
+    user_id=None,
+    sources: list = None,
+) -> None:
     """
-    Save a question/answer pair to the cache for this user.
-    Only call this when the answer actually came from the documents.
-    """
-    if redis_client is None or not answer:
-        return
+    Save a question/answer pair to the cache.
 
+    Before saving, check if a semantically equivalent entry already exists
+    (score >= SIMILARITY_THRESHOLD). If so, skip the insert to prevent
+    duplicate cache entries for paraphrased questions.
+
+    The stored format is flat and clean:
+        {query, normalized_query, answer (str), sources (list),
+         document_id, user_id, embedding}
+    """
+    if redis_client is None:
+        return
     if user_id is None:
         return
 
-    emb = _get_embedding(query)
+    # Unwrap legacy nested-dict answers from previous code version
+    if isinstance(answer, dict):
+        sources = answer.get("sources", sources or [])
+        answer  = answer.get("answer", "")
+    if not answer:
+        return
+
+    sources    = sources or []
+    normalized = _normalize_query(query)
+
+    emb = _get_embedding(normalized)
     if emb is None:
         return
 
     try:
-        entry = json.dumps({
-            "query":       query,
-            "answer":      answer,
-            "document_id": document_id,
-            "user_id":     user_id,
-            "embedding":   emb,
-        })
+        # ── Duplicate-prevention check ────────────────────────────────────
+        # Before writing a new entry, scan existing entries for this user+doc.
+        # If one already has similarity >= threshold, skip the write entirely.
         prefix = _build_key_prefix(user_id)
+        keys   = redis_client.keys(f"{prefix}*")
+
+        for key in keys:
+            raw = redis_client.get(key)
+            if not raw:
+                continue
+            try:
+                existing = json.loads(raw)
+            except Exception:
+                continue
+
+            if existing.get("document_id") != document_id:
+                continue
+
+            stored_emb = existing.get("embedding")
+            if not stored_emb:
+                continue
+
+            score = _cosine_similarity(emb, stored_emb)
+            if score >= SIMILARITY_THRESHOLD:
+                print(
+                    f"[SemanticCache] SKIP duplicate  score={score:.3f}  "
+                    f"existing={existing.get('normalized_query', '')!r}  "
+                    f"new={normalized!r}"
+                )
+                return   # similar entry already exists — don't pollute the cache
+
+        # ── Store new entry ───────────────────────────────────────────────
+        entry = json.dumps({
+            "query":            query,       # original text (for display)
+            "normalized_query": normalized,  # used for similarity lookup
+            "answer":           answer,      # always a plain string
+            "sources":          sources,     # list of {file_name, page_num}
+            "document_id":      document_id,
+            "user_id":          user_id,
+            "embedding":        emb,
+        })
         key = f"{prefix}{uuid.uuid4().hex}"
         redis_client.set(key, entry, ex=RAG_TTL)
-        print(f"[SemanticCache] Saved key={key!r} query={query!r} user={user_id}")
+        print(
+            f"[SemanticCache] SAVED  key={key!r}  "
+            f"query={normalized!r}  user={user_id}"
+        )
+
     except Exception as e:
         print(f"[SemanticCache] Write error: {e}")
 
 
+# ── Dashboard helpers ────────────────────────────────────────────────────────
+
 def get_user_cache_entries(user_id) -> list:
-    """
-    Pull all cached entries for one user - used by the cache dashboard page.
-    """
+    """Return all cache entries for a user — used by the cache dashboard page."""
     if redis_client is None or user_id is None:
         return []
 
     entries = []
     try:
         prefix = _build_key_prefix(user_id)
-        keys = redis_client.keys(f"{prefix}*")
+        keys   = redis_client.keys(f"{prefix}*")
         for k in keys:
             raw = redis_client.get(k)
             ttl = redis_client.ttl(k)
             if not raw:
                 continue
             try:
-                entry   = json.loads(raw)
+                entry = json.loads(raw)
+
+                # Safely extract answer — handle both old and new format
+                answer = entry.get("answer", "")
+                if isinstance(answer, dict):
+                    answer = answer.get("answer", "")
+
                 query   = entry.get("query", "")
-                answer  = entry.get("answer", "")
                 doc_id  = entry.get("document_id") or "(all documents)"
-                preview = answer if len(answer) < 300 else answer[:300] + "..."
+                sources = entry.get("sources", [])
+                preview = answer[:300] + "..." if len(answer) > 300 else answer
+
                 entries.append({
-                    "key":    k,
-                    "query":  query,
-                    "value":  preview,
-                    "doc_id": doc_id,
-                    "ttl":    ttl if ttl > 0 else "Expired",
+                    "key":     k,
+                    "query":   query,
+                    "value":   preview,
+                    "doc_id":  doc_id,
+                    "sources": sources,
+                    "ttl":     ttl if ttl > 0 else "Expired",
                 })
             except Exception:
                 pass
@@ -246,7 +339,7 @@ def clear_user_cache(user_id) -> int:
         return 0
     try:
         prefix = _build_key_prefix(user_id)
-        keys = redis_client.keys(f"{prefix}*")
+        keys   = redis_client.keys(f"{prefix}*")
         if keys:
             redis_client.delete(*keys)
             print(f"[SemanticCache] Cleared {len(keys)} entries for user={user_id}")
@@ -257,18 +350,14 @@ def clear_user_cache(user_id) -> int:
 
 
 def invalidate_by_document(document_id: str, user_id=None) -> int:
-    """
-    Remove any cached entries that belong to a specific document.
-    Pass user_id to limit this to one person's cache, or leave it None to clear all.
-    """
+    """Remove all cached entries that belong to a specific document."""
     if redis_client is None:
         return 0
 
     deleted = 0
     try:
-        # narrow it down to just this user if we know who they are
-        prefix = _build_key_prefix(user_id) if user_id else EMB_KEY_PREFIX
-        keys = redis_client.keys(f"{prefix}*")
+        prefix    = _build_key_prefix(user_id) if user_id else RAG_KEY_PREFIX
+        keys      = redis_client.keys(f"{prefix}*")
         to_delete = []
         for key in keys:
             raw = redis_client.get(key)
@@ -284,7 +373,10 @@ def invalidate_by_document(document_id: str, user_id=None) -> int:
         if to_delete:
             redis_client.delete(*to_delete)
             deleted = len(to_delete)
-            print(f"[SemanticCache] Removed {deleted} entries for doc={document_id!r} user={user_id}")
+            print(
+                f"[SemanticCache] Removed {deleted} entries for "
+                f"doc={document_id!r} user={user_id}"
+            )
 
     except Exception as e:
         print(f"[SemanticCache] Invalidation error: {e}")

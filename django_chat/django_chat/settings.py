@@ -27,9 +27,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://django-rag.onrender.com",
 ]
 
-# -----------------------------------------------------------------------
 # Installed apps
-# -----------------------------------------------------------------------
 INSTALLED_APPS = [
     "daphne",
     "django.contrib.admin",
@@ -54,9 +52,7 @@ INSTALLED_APPS = [
     "chat",
 ]
 
-# -----------------------------------------------------------------------
 # ASGI / Channels
-# -----------------------------------------------------------------------
 ASGI_APPLICATION = "django_chat.asgi.application"
 
 REDIS_URL = os.getenv("REDIS_URL")
@@ -77,9 +73,7 @@ else:
         }
     }
 
-# -----------------------------------------------------------------------
 # Middleware
-# -----------------------------------------------------------------------
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -91,9 +85,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-# -----------------------------------------------------------------------
 # URLs and templates
-# -----------------------------------------------------------------------
 ROOT_URLCONF = "django_chat.urls"
 
 TEMPLATES = [
@@ -113,9 +105,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "django_chat.wsgi.application"
 
-# -----------------------------------------------------------------------
 # Database
-# -----------------------------------------------------------------------
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
@@ -129,9 +119,7 @@ else:
         }
     }
 
-# -----------------------------------------------------------------------
 # Password validation
-# -----------------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -139,37 +127,27 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# -----------------------------------------------------------------------
 # Internationalisation
-# -----------------------------------------------------------------------
 LANGUAGE_CODE = "en-us"
 TIME_ZONE     = "UTC"
 USE_I18N      = True
 USE_TZ        = True
 
-# -----------------------------------------------------------------------
 # Static files
-# -----------------------------------------------------------------------
 STATIC_URL  = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 # Using the default storage backend avoids the W004 warning on Render
 STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
 
-# -----------------------------------------------------------------------
 # Media files
-# -----------------------------------------------------------------------
 MEDIA_URL  = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# -----------------------------------------------------------------------
 # Default primary key type
-# -----------------------------------------------------------------------
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# -----------------------------------------------------------------------
 # Authentication (allauth)
-# -----------------------------------------------------------------------
 SITE_ID = 1
 
 AUTHENTICATION_BACKENDS = [
@@ -188,9 +166,7 @@ ACCOUNT_EMAIL_VERIFICATION = "none"     # set to 'mandatory' to require email co
 ACCOUNT_SIGNUP_TEMPLATE = "account/signup.html"
 ACCOUNT_LOGIN_TEMPLATE  = "account/login.html"
 
-# -----------------------------------------------------------------------
 # Django REST Framework
-# -----------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -202,9 +178,7 @@ REST_FRAMEWORK = {
     ),
 }
 
-# -----------------------------------------------------------------------
 # JWT settings (djangorestframework-simplejwt)
-# -----------------------------------------------------------------------
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME":    timedelta(days=7),
     "REFRESH_TOKEN_LIFETIME":   timedelta(days=30),

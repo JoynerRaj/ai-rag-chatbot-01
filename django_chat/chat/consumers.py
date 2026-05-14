@@ -68,6 +68,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             generator = await sync_to_async(get_generator, thread_sensitive=False)()
 
             full_answer = ""
+
             if hasattr(generator, "__iter__") and not isinstance(generator, str):
                 def get_next():
                     try:
@@ -79,6 +80,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     chunk = await sync_to_async(get_next, thread_sensitive=False)()
                     if chunk is None:
                         break
+
                     full_answer += chunk
                     await self.send(json.dumps({"type": "stream", "chunk": chunk}))
 
@@ -88,7 +90,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "chat_id": self.chat_id
                 }))
             else:
-                full_answer = generator
+                full_answer = generator or ""
                 await self.send(json.dumps({
                     "type": "response",
                     "response": full_answer,
@@ -96,11 +98,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "chat_id": self.chat_id
                 }))
 
-            if self.chat_id and full_answer:
+            # Save the clean answer to the database
+            clean_answer = full_answer.strip()
+
+            if self.chat_id and clean_answer:
                 await sync_to_async(ChatHistory.objects.create)(
                     session_id=self.chat_id,
                     question=query,
-                    answer=full_answer
+                    answer=clean_answer
                 )
                 session = await sync_to_async(ChatSession.objects.get)(id=self.chat_id)
                 if session.title == "New Chat":
@@ -114,7 +119,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             user_id=self.user.id,
                             session_id=self.chat_id,
                             question=query,
-                            answer=full_answer,
+                            answer=clean_answer,
                         )
                     except Exception as e:
                         print(f"[memory] trigger error: {e}")

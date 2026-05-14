@@ -4,7 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Chatbot – RAG Assistant</title>
+<meta name="description" content="RAG-powered AI chatbot — ask questions about your uploaded documents with source citations and streaming responses.">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- marked.js for full Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
+<!-- highlight.js for code syntax highlighting -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/highlight.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -247,10 +253,47 @@
   .send-btn:hover { opacity: 0.85; transform: scale(1.05); }
   .send-btn svg { width: 18px; height: 18px; }
 
-  /* Bot bubble markdown */
+  /* Bot bubble — markdown-aware styles */
+  .bot .bubble { white-space: normal; }
+  .bot .bubble p { margin-bottom: 0.6em; line-height: 1.7; }
+  .bot .bubble p:last-child { margin-bottom: 0; }
   .bot .bubble strong { color: var(--text); font-weight: 650; }
   .bot .bubble em { font-style: italic; color: var(--text-dim); }
-  .bot .bubble code { background: rgba(99,102,241,0.12); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+  .bot .bubble code {
+    background: rgba(99,102,241,0.15); padding: 2px 6px;
+    border-radius: 4px; font-family: 'Fira Code', monospace; font-size: 12.5px;
+    color: #a5b4fc;
+  }
+  .bot .bubble pre {
+    background: #0d1117; border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 10px 0;
+  }
+  .bot .bubble pre code {
+    background: transparent; padding: 0; color: inherit; font-size: 13px;
+  }
+  .bot .bubble h1,.bot .bubble h2,.bot .bubble h3 {
+    color: var(--text); font-weight: 700; margin: 12px 0 6px;
+  }
+  .bot .bubble h1 { font-size: 17px; }
+  .bot .bubble h2 { font-size: 15px; }
+  .bot .bubble h3 { font-size: 14px; }
+  .bot .bubble ul,.bot .bubble ol {
+    padding-left: 1.4em; margin: 6px 0;
+  }
+  .bot .bubble li { margin-bottom: 3px; }
+  .bot .bubble table {
+    border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px;
+  }
+  .bot .bubble th,.bot .bubble td {
+    border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+  }
+  .bot .bubble th { background: rgba(99,102,241,0.12); color: var(--text); font-weight: 600; }
+  .bot .bubble blockquote {
+    border-left: 3px solid var(--accent); margin: 8px 0;
+    padding: 6px 12px; color: var(--text-muted); font-style: italic;
+  }
+  .bot .bubble a { color: var(--accent); text-decoration: underline; }
+
 
   .input-hint { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px; }
 </style>
@@ -333,19 +376,32 @@
 
   <!-- INPUT -->
   <div class="input-wrapper">
+    <!-- Document selector removed -->
     <div class="input-box">
       <input id="msg" placeholder="Message RAG Chatbot…" onkeydown="handleKey(event)" autocomplete="off">
-      <button class="send-btn" onclick="sendMessage()" title="Send">
+      <button class="send-btn" onclick="sendMessage()" title="Send" id="send-btn">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
     </div>
-    <div class="input-hint">AI searches your uploaded documents automatically when needed.</div>
+    <div class="input-hint">AI searches your uploaded documents automatically.</div>
   </div>
 </main>
 
 <script>
+// Configure marked.js to use highlight.js for code blocks
+marked.setOptions({
+  highlight: (code, lang) => {
+    if (lang && hljs.getLanguage(lang)) {
+      return hljs.highlight(code, { language: lang }).value;
+    }
+    return hljs.highlightAuto(code).value;
+  },
+  breaks: true,
+  gfm: true,
+});
+
 const CSRF = '{{ csrf_token }}';
 let ws = null;
 let activeChatId = null;
@@ -359,37 +415,48 @@ if (chatId) {
   connectWebSocket(chatId);
 }
 
+
+
 function connectWebSocket(id) {
   const protocol = location.protocol === "https:" ? "wss://" : "ws://";
   ws = new WebSocket(protocol + location.host + "/ws/chat/?chat_id=" + id);
 
-let currentStreamBubble = null;
-let currentStreamText = "";
+  let currentStreamBubble = null;   // the .bubble div being streamed into
+  let currentStreamRow    = null;   // the .message-row that contains it
+  let currentStreamText   = "";
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
+
     if (data.type === "history") {
       appendMessage(data.question, "user", false);
       appendMessage(data.response, "bot", false);
       return;
     }
-    
+
     if (data.type === "stream") {
       removeTyping();
       if (!currentStreamBubble) {
         currentStreamText = "";
-        currentStreamBubble = appendMessage("", "bot", true);
+        const result = appendMessageFull("", "bot", true);
+        currentStreamBubble = result.bubble;
+        currentStreamRow    = result.row;
       }
       currentStreamText += (data.chunk || "");
-      currentStreamBubble.innerHTML = formatBotText(currentStreamText);
+      currentStreamBubble.innerHTML = marked.parse(currentStreamText);
+      // Re-apply syntax highlighting to any new code blocks
+      currentStreamBubble.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
       chatBox.scrollTop = chatBox.scrollHeight;
       return;
     }
 
+
+
     if (data.type === "stream_end") {
       removeTyping();
       currentStreamBubble = null;
-      currentStreamText = "";
+      currentStreamRow    = null;
+      currentStreamText   = "";
       updateSidebarPreview(data.question);
       return;
     }
@@ -415,11 +482,8 @@ async function sendMessage() {
   if (!msg) return;
   input.value = "";
 
-  // ── Auto-create chat if none exists (ChatGPT style) ─────────────────────
   if (!ws || ws.readyState !== 1) {
     document.getElementById("welcomeState")?.remove();
-
-    // Create chat session via AJAX
     const res = await fetch("/new-chat-ajax/", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
@@ -427,38 +491,26 @@ async function sendMessage() {
     });
     const data = await res.json();
     activeChatId = data.chat_id;
-
-    // Update URL without reload
     history.pushState({}, "", "/?chat_id=" + activeChatId);
-
-    // Add to sidebar top
     addToSidebar(activeChatId, data.title);
-
-    // Connect WebSocket
     connectWebSocket(activeChatId);
-
-    // Wait for WS to open then send
     ws.onopen = () => {
       appendMessage(msg, "user", true);
       showTyping();
-      const selectedDoc = document.querySelector('input[name="docPill"]:checked')?.value || "";
-      ws.send(JSON.stringify({ message: msg, document_id: selectedDoc }));
+      ws.send(JSON.stringify({ message: msg, document_id: "" }));
     };
     return;
   }
 
   appendMessage(msg, "user", true);
   showTyping();
-  const selectedDoc = document.querySelector('input[name="docPill"]:checked')?.value || "";
-  ws.send(JSON.stringify({ message: msg, document_id: selectedDoc }));
+  ws.send(JSON.stringify({ message: msg, document_id: "" }));
 }
 
 function addToSidebar(id, title) {
   const list = document.querySelector(".chats-list");
-  // Remove empty state if present
   const empty = list.querySelector("div[style]");
   if (empty) empty.remove();
-
   const wrapper = document.createElement("div");
   wrapper.className = "chat-wrapper";
   wrapper.innerHTML = `
@@ -471,12 +523,12 @@ function addToSidebar(id, title) {
     </a>
     <a href="/delete-chat/${id}/" onclick="return confirm('Delete this chat?')" class="delete-btn" title="Delete chat">✕</a>
   `;
-  // Remove active from other items
   document.querySelectorAll(".chat-item.active").forEach(el => el.classList.remove("active"));
   list.prepend(wrapper);
 }
 
-function appendMessage(text, type, animate) {
+// Returns {row, bubble} — used internally so we can attach citations later
+function appendMessageFull(text, type, animate) {
   const row = document.createElement("div");
   row.className = "message-row " + type;
   if (!animate) row.style.animation = "none";
@@ -488,7 +540,8 @@ function appendMessage(text, type, animate) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   if (type === "bot") {
-    bubble.innerHTML = formatBotText(text || "");
+    bubble.innerHTML = text ? marked.parse(text) : "";
+    bubble.querySelectorAll("pre code").forEach(el => hljs.highlightElement(el));
   } else {
     bubble.innerText = text || "";
   }
@@ -497,36 +550,15 @@ function appendMessage(text, type, animate) {
   row.appendChild(bubble);
   chatBox.appendChild(row);
   chatBox.scrollTop = chatBox.scrollHeight;
-  return bubble;
+  return { row, bubble };
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+// Convenience wrapper that only returns the bubble element
+function appendMessage(text, type, animate) {
+  return appendMessageFull(text, type, animate).bubble;
 }
 
-function formatBotText(raw) {
-  if (!raw) return "";
 
-  // 1. Escape HTML so user/AI content can't inject tags
-  let text = escapeHtml(raw);
-
-  // 2. **bold** → <strong> (renders as darker, heavier font — no asterisks shown)
-  text = text.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
-
-  // 3. *italic* → <em>
-  text = text.replace(/(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
-
-  // 4. `code` → <code>
-  text = text.replace(/`([^`]+?)`/g, '<code>$1</code>');
-
-  // 5. Newlines → <br>
-  return text.replace(/\r?\n/g, '<br>');
-}
 
 function showTyping() {
   const row = document.createElement("div");

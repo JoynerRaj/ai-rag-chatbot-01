@@ -116,7 +116,7 @@ def debug_embed_test(request):
 # Background embedding — shared by upload_page and upload_chunk
 # ---------------------------------------------------------------------------
 
-def _embed_in_background(doc_id: int, filepath: str, filename: str):
+def _embed_in_background(doc_id: int, filepath: str, filename: str, doc_title: str = ""):
     """
     Runs in a daemon thread after a file lands on disk.
 
@@ -128,8 +128,9 @@ def _embed_in_background(doc_id: int, filepath: str, filename: str):
     """
     try:
         doc = Document.objects.get(id=doc_id)
+        fname = filename.lower()
 
-        if filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+        if fname.endswith((".mp3", ".wav", ".ogg", ".m4a")):
             transcript = transcribe_audio(filepath, filename)
 
             if transcript and transcript.strip():
@@ -137,6 +138,7 @@ def _embed_in_background(doc_id: int, filepath: str, filename: str):
                 pinecone_id   = embedding_service.embed_and_store(
                     transcript.encode("utf-8"),
                     filename + ".txt",
+                    doc_title=doc_title,
                 )
                 doc.pinecone_id      = pinecone_id
                 doc.embedding_status = Document.EMBEDDING_DONE
@@ -150,7 +152,7 @@ def _embed_in_background(doc_id: int, filepath: str, filename: str):
             with open(filepath, "rb") as f:
                 file_bytes = f.read()
 
-            pinecone_id          = embedding_service.embed_and_store(file_bytes, filename)
+            pinecone_id          = embedding_service.embed_and_store(file_bytes, filename, doc_title=doc_title)
             doc.pinecone_id      = pinecone_id
             doc.embedding_status = Document.EMBEDDING_DONE
             print(f"[embed] doc #{doc_id} stored in Pinecone (id={pinecone_id!r})")
@@ -231,6 +233,7 @@ def upload_page(request):
 
     file_name = file.name.lower()
     is_audio  = file_name.endswith((".mp3", ".wav", ".ogg", ".m4a"))
+    is_image  = file_name.endswith((".jpg", ".jpeg", ".png", ".webp"))
 
     # Write the incoming file straight to disk so we never hold it all in RAM
     temp_fd, temp_path = tempfile.mkstemp(suffix="_" + file_name)
@@ -247,7 +250,7 @@ def upload_page(request):
     if not content.strip():
         if os.path.exists(temp_path):
             os.remove(temp_path)
-        msg = "Could not extract any text from this file. Please upload a valid PDF, DOCX, or TXT."
+        msg = "Could not extract any text from this file. Please upload a valid PDF, DOCX, TXT, CSV, or image."
         if is_ajax:
             return JsonResponse({"error": msg}, status=400)
         return render(request, "upload.html", {"error": msg})
@@ -265,6 +268,7 @@ def upload_page(request):
     threading.Thread(
         target=_embed_in_background,
         args=(doc.id, temp_path, file.name),
+        kwargs={"doc_title": title},
         daemon=True,
     ).start()
 
@@ -373,6 +377,7 @@ def upload_chunk(request):
     threading.Thread(
         target=_embed_in_background,
         args=(doc.id, temp_path, original_name),
+        kwargs={"doc_title": title},
         daemon=True,
     ).start()
 
@@ -415,9 +420,38 @@ def edit_document(request, id):
     doc = get_object_or_404(Document, id=id, user=request.user)
 
     if request.method == "POST":
-        doc.title   = request.POST.get("title")
-        doc.content = request.POST.get("content")
-        doc.save()
+        new_title   = request.POST.get("title", "").strip() or doc.title
+        new_content = request.POST.get("content", "").strip()
+
+        # If content changed, delete the old Pinecone vectors and re-embed
+        if new_content and new_content != doc.content:
+            if doc.pinecone_id:
+                try:
+                    embedding_service.delete_document(doc.pinecone_id)
+                except Exception as e:
+                    print(f"[edit] Pinecone delete failed (continuing): {e}")
+
+            doc.title            = new_title
+            doc.content          = new_content
+            doc.pinecone_id      = None
+            doc.embedding_status = Document.EMBEDDING_PENDING
+            doc.save()
+
+            # Re-embed in background using the updated text
+            temp_fd, temp_path = tempfile.mkstemp(suffix=".txt")
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                f.write(new_content)
+
+            threading.Thread(
+                target=_embed_in_background,
+                args=(doc.id, temp_path, doc.title + ".txt"),
+                kwargs={"doc_title": new_title},
+                daemon=True,
+            ).start()
+        else:
+            doc.title = new_title
+            doc.save()
+
         return redirect("documents")
 
     return render(request, "edit.html", {"doc": doc})
