@@ -1,11 +1,3 @@
-"""
-audio_routes.py
-
-Audio-specific API endpoints:
-  POST /audio/upload-audio/ — process an audio file and store detected events in SQLite
-  POST /audio/ask/          — answer a natural language question about stored events
-"""
-
 import os
 import tempfile
 

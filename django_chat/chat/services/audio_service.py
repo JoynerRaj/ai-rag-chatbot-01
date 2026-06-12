@@ -1,11 +1,3 @@
-"""
-audio_service.py
-
-Handles everything related to audio file transcription via the Gemini Files API.
-Keeping this separate from views.py means the transcription logic can be tested
-and reused without pulling in any Django HTTP machinery.
-"""
-
 import os
 import time
 
